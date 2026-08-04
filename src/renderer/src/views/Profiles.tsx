@@ -712,6 +712,7 @@ function AccountRow({
   const [username, setUsername] = useState(account.username ?? '')
   const [plan, setPlan] = useState<SessionPlanView | null>(null)
   const [running, setRunning] = useState(false)
+  const [days, setDays] = useState('14')
   const [result, setResult] = useState<SessionRunResult | null>(null)
 
   const loadPlan = useCallback(async () => {
@@ -740,6 +741,15 @@ function AccountRow({
     setRunning(false)
     if (!res.ok) return onError(res.error)
     setResult(res.value)
+    onChanged()
+    void loadPlan()
+  }
+
+  const startRun = async (runDays: number | null): Promise<void> => {
+    const res = await window.boiler.updateAccount(row.personaSlug, row.id, account.platform, {
+      runDays
+    })
+    if (!res.ok) return onError(res.error)
     onChanged()
     void loadPlan()
   }
@@ -838,6 +848,64 @@ function AccountRow({
           username here. Registering inside the profile means one device and one IP from the
           account&apos;s very first minute — which is when these platforms score it.
         </p>
+      )}
+
+      {/* A run: this level, for this many days. The schedule — which days rest
+          and what time each session lands — is derived from the account, so
+          nothing here has to be chosen or remembered. */}
+      {registered && plan?.next && (
+        <div className="mt-2 flex flex-wrap items-center gap-2 text-xxs text-neutral-500">
+          {plan.run ? (
+            <>
+              <span className="text-neutral-400">
+                run: day {plan.run.nextDay}/{plan.run.days}
+              </span>
+              <span>
+                active {String(plan.run.activeFrom).padStart(2, '0')}:00–
+                {String(plan.run.activeTo).padStart(2, '0')}:00
+              </span>
+              <span>{plan.run.restDays.length} rest days</span>
+              <button
+                onClick={() => void startRun(null)}
+                className="rounded-md border border-surface-border px-1.5 py-0.5 hover:text-red-300"
+              >
+                stop run
+              </button>
+            </>
+          ) : (
+            <>
+              <span>run</span>
+              <input
+                value={days}
+                onChange={(e) => setDays(e.target.value.replace(/\D/g, ''))}
+                className="w-12 rounded-md border border-surface-border bg-surface-secondary px-1.5 py-0.5 text-center text-neutral-200 outline-none focus:border-neutral-600"
+              />
+              <span>days of {account.level}</span>
+              <button
+                onClick={() => void startRun(Number(days) || 14)}
+                className="rounded-md border border-surface-border px-1.5 py-0.5 text-neutral-300 hover:bg-surface-tertiary"
+              >
+                Start
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
+      {plan?.run && plan.run.upcoming.length > 0 && (
+        <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xxs text-neutral-600">
+          {plan.run.upcoming.map((u) => (
+            <span key={u.day} className={u.kind === 'rest' ? 'text-neutral-700' : ''}>
+              d{u.day}{' '}
+              {new Date(u.at).toLocaleString([], {
+                weekday: 'short',
+                hour: '2-digit',
+                minute: '2-digit'
+              })}
+              {u.kind === 'rest' ? ' · rest' : ''}
+            </span>
+          ))}
+        </div>
       )}
 
       {registered && plan && (

@@ -1,7 +1,10 @@
 import { app, shell, BrowserWindow } from 'electron'
 import { join } from 'node:path'
-import { registerIpc } from './ipc'
+import { registerIpc, runAccountSession } from './ipc'
+import { startScheduler, type SchedulerHandle } from './scheduler'
 import { setDataRoot } from './store'
+
+let scheduler: SchedulerHandle | undefined
 import { stopAll } from './profiles'
 
 // Only one Boiler at a time. Two instances would each hold their own view of
@@ -57,6 +60,19 @@ app.whenReady().then(() => {
   registerIpc()
   createWindow()
 
+  // Runs sessions whose scheduled time has arrived, for accounts with a run
+  // started. Only while the app is open — there is no service and nothing
+  // fires when the machine is off, which is why it never catches up on a
+  // backlog: four sessions in an hour after a weekend away is exactly the
+  // burst the schedule exists to prevent.
+  scheduler = startScheduler(async (due) => {
+    const result = await runAccountSession(due.personaSlug, due.profileId, due.platform)
+    console.log(
+      `[scheduler] ${due.profileId}/${due.platform} completed=${result.completed}` +
+        (result.error ? ` — ${result.error}` : '')
+    )
+  })
+
   // Someone tried to start a second Boiler: surface the one that already
   // exists rather than silently doing nothing.
   app.on('second-instance', () => {
@@ -74,7 +90,10 @@ app.whenReady().then(() => {
 
 // Chrome instances are children of this process; leaving them orphaned would
 // strand profiles as "open" with no way to close them from the app.
-app.on('before-quit', () => stopAll())
+app.on('before-quit', () => {
+  scheduler?.stop()
+  stopAll()
+})
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()

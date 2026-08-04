@@ -73,6 +73,19 @@ export type SessionPlanView = {
   total: number
   /** Which programme the totals and labels below belong to. */
   level: Level
+  /** The run in progress, if the operator has started one. */
+  run: {
+    days: number
+    /** 1-based day of the run the next session falls on. */
+    nextDay: number
+    /** Days that are scheduled rest, so the UI can say why nothing is due. */
+    restDays: number[]
+    /** Local hours this account tends to be active between. */
+    activeFrom: number
+    activeTo: number
+    /** Epoch ms of the next few entries, for showing the schedule ahead. */
+    upcoming: { day: number; at: number; kind: 'active' | 'rest' }[]
+  } | null
   /** 1-based index of the session that runs next, or null when finished. */
   next: number | null
   label: string
@@ -104,7 +117,14 @@ export type BoilerApi = {
     personaSlug: string,
     profileId: string,
     platform: string,
-    patch: { username?: string | null; registered?: boolean; health?: string; level?: Level }
+    patch: {
+      username?: string | null
+      registered?: boolean
+      health?: string
+      level?: Level
+      /** Starting a run: this level, for this many days, from now. */
+      runDays?: number | null
+    }
   ) => Promise<Result<null>>
   removeAccount: (personaSlug: string, profileId: string, platform: string) => Promise<Result<null>>
   sessionPlan: (

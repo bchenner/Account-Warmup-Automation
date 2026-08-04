@@ -19,7 +19,8 @@
     "check:levels": "node scripts/levels-check.mjs",
     "check:timezone": "node scripts/timezone-sync-check.mjs",
     "check:tabrestore": "node scripts/tabrestore-check.mjs",
-    "check:explore": "node --import ./scripts/alias-register.mjs scripts/explore-check.mjs"
+    "check:explore": "node --import ./scripts/alias-register.mjs scripts/explore-check.mjs",
+    "check:resources": "node --import ./scripts/alias-register.mjs scripts/resource-check.mjs"
   },
   "dependencies": {
     "patchright": "^1.61.1",

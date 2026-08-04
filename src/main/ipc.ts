@@ -4,7 +4,9 @@ import {
   type AddAccountInput,
   type AddProxyInput,
   type CreateProfileInput,
-  type Result
+  type Result,
+  type SessionPlanView,
+  type SessionRunResult
 } from '@shared/ipc'
 import { NICHE_KEYS, coerceNiche } from '@shared/niches'
 import {
@@ -17,6 +19,7 @@ import {
   type Proxy
 } from '@shared/schemas'
 import { formatEstimate, nextDueAt } from '@shared/session'
+import { activeWindowFor, nextInRun, planRun } from '@shared/schedule'
 import {
   encryptSecret,
   decryptSecret,
@@ -150,6 +153,99 @@ async function toRow(profile: Profile): Promise<ProfileRow> {
       level: a.level
     }))
   }
+}
+
+/**
+ * One warmup session, start to finish.
+ *
+ * Exported because the scheduler runs sessions too, and two implementations of
+ * "run a session" would drift — the counter rules and the registry write below
+ * are the parts that must never differ between a button press and a timer.
+ */
+export async function runAccountSession(
+  personaSlug: string,
+  profileId: string,
+  platform: string
+): Promise<SessionRunResult> {
+      const [profile] = (await listProfiles()).filter((p) => p.id === profileId)
+      if (!profile) throw new Error(`no such profile: ${profileId}`)
+      if (isSessionRunning(profileId)) {
+        throw new Error('a warmup session is already running on this profile')
+      }
+      if (isRunning(profileId)) {
+        throw new Error('this profile is open — close it before running a session')
+      }
+      const persona = (await listPersonas()).find((p) => p.slug === personaSlug)
+      if (!persona) throw new Error(`no such persona: ${personaSlug}`)
+      const account = await getAccount(personaSlug, profileId, platform)
+      if (!account) throw new Error(`no ${platform} account on this profile`)
+      if (!account.registered) {
+        throw new Error('register the account inside its profile before running a session')
+      }
+      if (account.health !== 'ok') {
+        throw new Error(
+          `this account is marked "${account.health}" — clear it before running another session`
+        )
+      }
+
+      const registry = await loadRegistry()
+      const followedTargets = new Set(registry.followedTargets)
+      const friendedTargets = new Set(registry.friendedTargets)
+      const joinedGroups = new Set(registry.joinedGroups)
+      const usedSources = new Set(registry.usedSourceFingerprints)
+      const claimedPosts = new Set(registry.claimedPosts)
+      const usedComments = [...registry.usedComments]
+
+      // Marked for the whole run, and cleared even if it throws — a profile
+      // left flagged busy could never be opened or warmed again without a
+      // restart.
+      markSessionStart(profileId)
+      let outcome
+      try {
+        outcome = await runWarmupSession({
+          profile,
+          persona,
+          account,
+          managedHandles: await managedHandles(),
+          followedTargets,
+          friendedTargets,
+          joinedGroups,
+          usedComments,
+          usedSources,
+          claimedPosts
+        })
+      } finally {
+        markSessionEnd(profileId)
+      }
+
+      // The fleet registry records what actually happened, whether or not the
+      // session finished — a follow that landed is in the graph regardless.
+      await saveRegistry({
+        followedTargets: [...followedTargets],
+        friendedTargets: [...friendedTargets],
+        joinedGroups: [...joinedGroups],
+        usedComments,
+        usedSourceFingerprints: [...usedSources],
+        claimedPosts: [...claimedPosts]
+      })
+
+      // The counter only advances on a COMPLETED session. Advancing after an
+      // abort would put the account's recorded progress ahead of its real state.
+      if (outcome.completed) {
+        await saveAccount(personaSlug, profileId, {
+          ...account,
+          sessionCounter: account.sessionCounter + 1,
+          lastSessionAt: new Date().toISOString()
+        })
+      }
+
+      return {
+        completed: outcome.completed,
+        sessionIndex: outcome.sessionIndex,
+        egressIp: outcome.egressIp,
+        steps: outcome.steps,
+        error: outcome.error
+      }
 }
 
 export function registerIpc(): void {
@@ -305,6 +401,8 @@ export function registerIpc(): void {
         username: null,
         registered: false,
         sessionCounter: 0,
+        runDays: null,
+        runStartedAt: null,
         health: 'ok',
         scriptVersion: null,
         lastSessionAt: null
@@ -325,6 +423,7 @@ export function registerIpc(): void {
         registered?: boolean
         health?: string
         level?: Level
+        runDays?: number | null
       }
     ) =>
       guard(async () => {
@@ -346,10 +445,23 @@ export function registerIpc(): void {
           )
         }
 
+        // A run is "this level for this many days", so changing level ends it:
+        // a schedule built for one programme means nothing against another.
+        let runDays = movedLevel ? null : account.runDays
+        let runStartedAt = movedLevel ? null : account.runStartedAt
+        if (patch.runDays !== undefined) {
+          runDays = patch.runDays
+          // Starting a run re-bases the clock. Clearing it stops the schedule
+          // without touching the progress already made.
+          runStartedAt = patch.runDays ? new Date().toISOString() : null
+        }
+
         await saveAccount(personaSlug, profileId, {
           ...account,
           level,
           sessionCounter: movedLevel ? 0 : account.sessionCounter,
+          runDays,
+          runStartedAt,
           username: patch.username !== undefined ? patch.username : account.username,
           registered: patch.registered ?? account.registered,
           health: (patch.health as Account['health']) ?? account.health
@@ -374,100 +486,50 @@ export function registerIpc(): void {
       const accountId = `${profileId}:${platform}`
       const plan = await loadPlan(platform, account.level, accountId)
       const next = plan[account.sessionCounter]
+      // When a run is in progress its schedule is the authority on timing; the
+      // day-to-day jitter only applies to an account being triggered by hand.
+      let run: SessionPlanView['run'] = null
+      let dueAt = nextDueAt(account.lastSessionAt, accountId, account.sessionCounter + 1)
+      if (account.runDays && account.runStartedAt) {
+        const schedule = planRun({
+          accountId,
+          level: account.level,
+          startedAt: new Date(account.runStartedAt).getTime(),
+          days: account.runDays,
+          programmeLength: plan.length
+        })
+        const entry = nextInRun(schedule, account.sessionCounter)
+        const window = activeWindowFor(accountId)
+        run = {
+          days: account.runDays,
+          nextDay: entry?.day ?? account.runDays,
+          restDays: schedule.filter((e) => e.kind === 'rest').map((e) => e.day),
+          activeFrom: window.from,
+          activeTo: window.to,
+          upcoming: schedule
+            .filter((e) => e.at >= Date.now() - 3600_000)
+            .slice(0, 6)
+            .map((e) => ({ day: e.day, at: e.at, kind: e.kind }))
+        }
+        dueAt = entry?.at ?? null
+      }
+
       return {
         total: plan.length,
         level: account.level,
+        run,
         next: next?.index ?? null,
         label: next?.label ?? `finished "${account.level}" — move up a level to continue`,
         kind: next?.kind ?? 'active',
         estimate: next ? formatEstimate(next.estimateMs) : '',
-        dueAt: nextDueAt(account.lastSessionAt, accountId, account.sessionCounter + 1)
+        dueAt
       }
     })
   )
 
+
   ipcMain.handle(CH.sessionRun, (_e, personaSlug: string, profileId: string, platform: string) =>
-    guard(async () => {
-      const [profile] = (await listProfiles()).filter((p) => p.id === profileId)
-      if (!profile) throw new Error(`no such profile: ${profileId}`)
-      if (isSessionRunning(profileId)) {
-        throw new Error('a warmup session is already running on this profile')
-      }
-      if (isRunning(profileId)) {
-        throw new Error('this profile is open — close it before running a session')
-      }
-      const persona = (await listPersonas()).find((p) => p.slug === personaSlug)
-      if (!persona) throw new Error(`no such persona: ${personaSlug}`)
-      const account = await getAccount(personaSlug, profileId, platform)
-      if (!account) throw new Error(`no ${platform} account on this profile`)
-      if (!account.registered) {
-        throw new Error('register the account inside its profile before running a session')
-      }
-      if (account.health !== 'ok') {
-        throw new Error(
-          `this account is marked "${account.health}" — clear it before running another session`
-        )
-      }
-
-      const registry = await loadRegistry()
-      const followedTargets = new Set(registry.followedTargets)
-      const friendedTargets = new Set(registry.friendedTargets)
-      const joinedGroups = new Set(registry.joinedGroups)
-      const usedSources = new Set(registry.usedSourceFingerprints)
-      const claimedPosts = new Set(registry.claimedPosts)
-      const usedComments = [...registry.usedComments]
-
-      // Marked for the whole run, and cleared even if it throws — a profile
-      // left flagged busy could never be opened or warmed again without a
-      // restart.
-      markSessionStart(profileId)
-      let outcome
-      try {
-        outcome = await runWarmupSession({
-          profile,
-          persona,
-          account,
-          managedHandles: await managedHandles(),
-          followedTargets,
-          friendedTargets,
-          joinedGroups,
-          usedComments,
-          usedSources,
-          claimedPosts
-        })
-      } finally {
-        markSessionEnd(profileId)
-      }
-
-      // The fleet registry records what actually happened, whether or not the
-      // session finished — a follow that landed is in the graph regardless.
-      await saveRegistry({
-        followedTargets: [...followedTargets],
-        friendedTargets: [...friendedTargets],
-        joinedGroups: [...joinedGroups],
-        usedComments,
-        usedSourceFingerprints: [...usedSources],
-        claimedPosts: [...claimedPosts]
-      })
-
-      // The counter only advances on a COMPLETED session. Advancing after an
-      // abort would put the account's recorded progress ahead of its real state.
-      if (outcome.completed) {
-        await saveAccount(personaSlug, profileId, {
-          ...account,
-          sessionCounter: account.sessionCounter + 1,
-          lastSessionAt: new Date().toISOString()
-        })
-      }
-
-      return {
-        completed: outcome.completed,
-        sessionIndex: outcome.sessionIndex,
-        egressIp: outcome.egressIp,
-        steps: outcome.steps,
-        error: outcome.error
-      }
-    })
+    guard(() => runAccountSession(personaSlug, profileId, platform))
   )
 
   ipcMain.handle(CH.profileStop, (_e, id: string) =>

@@ -213,6 +213,14 @@ export const AccountSchema = z.object({
   registered: z.boolean().default(false),
   /** Which session runs next. Never auto-advanced past an aborted session. */
   sessionCounter: z.number().int().min(0).default(0),
+  /**
+   * The run the operator asked for: this level, for this many days, starting
+   * then. The schedule itself is NOT stored — it is a pure function of these
+   * plus the account id, so it recomputes identically after a restart and can
+   * never drift out of step with what has already been run.
+   */
+  runDays: z.number().int().min(1).max(120).nullable().default(null),
+  runStartedAt: z.string().nullable().default(null),
   health: HealthSchema.default('ok'),
   scriptVersion: z.string().nullable().default(null),
   lastSessionAt: z.string().nullable().default(null)
