@@ -15,6 +15,11 @@ export const CH = {
   profileLaunch: 'profile:launch',
   profileStop: 'profile:stop',
   personaList: 'persona:list',
+  accountAdd: 'account:add',
+  accountUpdate: 'account:update',
+  accountRemove: 'account:remove',
+  sessionPlan: 'session:plan',
+  sessionRun: 'session:run',
   chromePath: 'app:chromePath',
   dataDir: 'app:dataDir'
 } as const
@@ -55,6 +60,32 @@ export type CreateProfileInput = {
 
 export type LaunchResult = { egressIp: string | null; direct: boolean }
 
+export type AddAccountInput = {
+  personaSlug: string
+  profileId: string
+  platform: 'facebook' | 'instagram' | 'threads'
+}
+
+/** What the UI shows for an account's warmup progress. */
+export type SessionPlanView = {
+  total: number
+  /** 1-based index of the session that runs next, or null when finished. */
+  next: number | null
+  label: string
+  kind: 'active' | 'rest'
+  estimate: string
+  /** Epoch ms when the next session is due, or null if none has run yet. */
+  dueAt: number | null
+}
+
+export type SessionRunResult = {
+  completed: boolean
+  sessionIndex: number
+  egressIp: string | null
+  steps: { action: string; seen: number; engaged: number; detail: string }[]
+  error?: string
+}
+
 export type BoilerApi = {
   dataDir: () => Promise<Result<string>>
   chromePath: () => Promise<Result<string | null>>
@@ -64,6 +95,24 @@ export type BoilerApi = {
   updateProfile: (profile: Profile) => Promise<Result<Profile>>
   deleteProfile: (personaSlug: string, id: string) => Promise<Result<null>>
   launchProfile: (id: string) => Promise<Result<LaunchResult>>
+  addAccount: (input: AddAccountInput) => Promise<Result<null>>
+  updateAccount: (
+    personaSlug: string,
+    profileId: string,
+    platform: string,
+    patch: { username?: string | null; registered?: boolean; health?: string }
+  ) => Promise<Result<null>>
+  removeAccount: (personaSlug: string, profileId: string, platform: string) => Promise<Result<null>>
+  sessionPlan: (
+    personaSlug: string,
+    profileId: string,
+    platform: string
+  ) => Promise<Result<SessionPlanView>>
+  runSession: (
+    personaSlug: string,
+    profileId: string,
+    platform: string
+  ) => Promise<Result<SessionRunResult>>
   stopProfile: (id: string) => Promise<Result<null>>
   listProxies: () => Promise<Result<Proxy[]>>
   addProxy: (input: AddProxyInput) => Promise<Result<Proxy>>

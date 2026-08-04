@@ -371,3 +371,52 @@ export function stopProfile(profileId: string): void {
 export function stopAll(): void {
   for (const id of [...running.keys()]) stopProfile(id)
 }
+
+// ---------------------------------------------------------------------------
+// Accounts, written
+// ---------------------------------------------------------------------------
+
+const accountFile = (slug: string, id: string, platform: string): string =>
+  join(profileDir(slug, id), 'accounts', `${platform}.yaml`)
+
+export async function saveAccount(
+  personaSlug: string,
+  profileId: string,
+  account: Account
+): Promise<Account> {
+  const parsed = AccountSchema.parse(account)
+  await writeAtomic(
+    accountFile(personaSlug, profileId, parsed.platform),
+    stringify(parsed)
+  )
+  return parsed
+}
+
+export async function getAccount(
+  personaSlug: string,
+  profileId: string,
+  platform: string
+): Promise<Account | null> {
+  const file = accountFile(personaSlug, profileId, platform)
+  if (!existsSync(file)) return null
+  return AccountSchema.parse(await readYaml(file))
+}
+
+export async function deleteAccount(
+  personaSlug: string,
+  profileId: string,
+  platform: string
+): Promise<void> {
+  await rm(accountFile(personaSlug, profileId, platform), { force: true })
+}
+
+/** Every handle the fleet owns — never followed by any of our own accounts. */
+export async function managedHandles(): Promise<Set<string>> {
+  const out = new Set<string>()
+  for (const profile of await listProfiles()) {
+    for (const a of await listAccounts(profile.personaSlug, profile.id)) {
+      if (a.username) out.add(a.username.startsWith('@') ? a.username : `@${a.username}`)
+    }
+  }
+  return out
+}

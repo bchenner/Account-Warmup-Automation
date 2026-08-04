@@ -25,7 +25,7 @@ export function getDataRoot(): string {
 const proxiesPath = (): string => join(getDataRoot(), 'proxies.yaml')
 
 /** Write to a temp file then rename, so a crash mid-write cannot truncate state. */
-async function writeAtomic(path: string, contents: string): Promise<void> {
+export async function writeAtomic(path: string, contents: string): Promise<void> {
   await mkdir(dirname(path), { recursive: true })
   const tmp = `${path}.tmp`
   await writeFile(tmp, contents, 'utf8')
@@ -112,4 +112,47 @@ export function decryptSecret(enc: string | null): string | null {
     // machine). Better to fail the launch than to send a garbled password.
     return null
   }
+}
+
+// ---------------------------------------------------------------------------
+// Fleet registry
+// ---------------------------------------------------------------------------
+
+/**
+ * Cross-account state that only means anything if it outlives a session.
+ *
+ * The follow graph and comment history are fleet-wide by definition — the whole
+ * point is that no two managed accounts follow the same target or reuse the
+ * same phrasing, and that cannot be enforced from within a single run.
+ */
+export type Registry = {
+  followedTargets: string[]
+  usedComments: string[]
+  usedSourceFingerprints: string[]
+  claimedPosts: string[]
+}
+
+const EMPTY: Registry = {
+  followedTargets: [],
+  usedComments: [],
+  usedSourceFingerprints: [],
+  claimedPosts: []
+}
+
+const registryPath = (): string => join(getDataRoot(), 'registry.yaml')
+
+export async function loadRegistry(): Promise<Registry> {
+  const path = registryPath()
+  if (!existsSync(path)) return { ...EMPTY }
+  const parsed = (parse(await readFile(path, 'utf8')) ?? {}) as Partial<Registry>
+  return {
+    followedTargets: parsed.followedTargets ?? [],
+    usedComments: parsed.usedComments ?? [],
+    usedSourceFingerprints: parsed.usedSourceFingerprints ?? [],
+    claimedPosts: parsed.claimedPosts ?? []
+  }
+}
+
+export async function saveRegistry(r: Registry): Promise<void> {
+  await writeAtomic(registryPath(), stringify(r))
 }

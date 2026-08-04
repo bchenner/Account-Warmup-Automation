@@ -1,17 +1,45 @@
 import { ipcMain } from 'electron'
-import { CH, type AddProxyInput, type CreateProfileInput, type Result } from '@shared/ipc'
-import { ProfileSchema, ProxySchema, type Profile, type ProfileRow, type Proxy } from '@shared/schemas'
-import { encryptSecret, decryptSecret, getDataRoot, loadProxyPool, mutateProxies, nextProxyId } from './store'
+import {
+  CH,
+  type AddAccountInput,
+  type AddProxyInput,
+  type CreateProfileInput,
+  type Result
+} from '@shared/ipc'
+import {
+  ProfileSchema,
+  ProxySchema,
+  type Account,
+  type Profile,
+  type ProfileRow,
+  type Proxy
+} from '@shared/schemas'
+import { formatEstimate, nextDueAt } from '@shared/session'
+import {
+  encryptSecret,
+  decryptSecret,
+  getDataRoot,
+  loadProxyPool,
+  loadRegistry,
+  mutateProxies,
+  nextProxyId,
+  saveRegistry
+} from './store'
+import { loadPlan, runWarmupSession } from './session-run'
 import { isAssignable, verifyProxy } from './proxy-verify'
 import {
+  deleteAccount,
   deleteProfile,
   findChrome,
+  getAccount,
+  managedHandles,
   isRunning,
   launchProfile,
   listAccounts,
   listPersonas,
   listProfiles,
   nextProfileId,
+  saveAccount,
   saveProfile,
   slugify,
   stopProfile,
@@ -202,6 +230,156 @@ export function registerIpc(): void {
       const profile = (await listProfiles()).find((p) => p.id === id)
       if (!profile) throw new Error(`no such profile: ${id}`)
       return launchProfile(profile)
+    })
+  )
+
+  // -- accounts -------------------------------------------------------------
+
+  ipcMain.handle(CH.accountAdd, (_e, input: AddAccountInput) =>
+    guard(async () => {
+      const existing = await getAccount(input.personaSlug, input.profileId, input.platform)
+      if (existing) throw new Error(`${input.platform} is already on this profile`)
+
+      // Threads has no independent existence — it inherits Instagram's age and
+      // trust and dies with it, so it cannot be added on its own.
+      if (input.platform === 'threads') {
+        const ig = await getAccount(input.personaSlug, input.profileId, 'instagram')
+        if (!ig?.registered) {
+          throw new Error(
+            'Threads inherits its Instagram account — register Instagram on this profile first'
+          )
+        }
+      }
+
+      await saveAccount(input.personaSlug, input.profileId, {
+        platform: input.platform,
+        profileId: input.profileId,
+        username: null,
+        registered: false,
+        sessionCounter: 0,
+        health: 'ok',
+        scriptVersion: null,
+        lastSessionAt: null
+      })
+      return null
+    })
+  )
+
+  ipcMain.handle(
+    CH.accountUpdate,
+    (
+      _e,
+      personaSlug: string,
+      profileId: string,
+      platform: string,
+      patch: { username?: string | null; registered?: boolean; health?: string }
+    ) =>
+      guard(async () => {
+        const account = await getAccount(personaSlug, profileId, platform)
+        if (!account) throw new Error(`no ${platform} account on this profile`)
+        if (patch.registered && !(patch.username ?? account.username)) {
+          throw new Error('enter the username you registered before marking it registered')
+        }
+        await saveAccount(personaSlug, profileId, {
+          ...account,
+          username: patch.username !== undefined ? patch.username : account.username,
+          registered: patch.registered ?? account.registered,
+          health: (patch.health as Account['health']) ?? account.health
+        })
+        return null
+      })
+  )
+
+  ipcMain.handle(CH.accountRemove, (_e, personaSlug: string, profileId: string, platform: string) =>
+    guard(async () => {
+      await deleteAccount(personaSlug, profileId, platform)
+      return null
+    })
+  )
+
+  // -- sessions -------------------------------------------------------------
+
+  ipcMain.handle(CH.sessionPlan, (_e, personaSlug: string, profileId: string, platform: string) =>
+    guard(async () => {
+      const account = await getAccount(personaSlug, profileId, platform)
+      if (!account) throw new Error(`no ${platform} account on this profile`)
+      const accountId = `${profileId}:${platform}`
+      const plan = await loadPlan(platform, accountId)
+      const next = plan[account.sessionCounter]
+      return {
+        total: plan.length,
+        next: next?.index ?? null,
+        label: next?.label ?? 'warmed — the script is finished',
+        kind: next?.kind ?? 'active',
+        estimate: next ? formatEstimate(next.estimateMs) : '',
+        dueAt: nextDueAt(account.lastSessionAt, accountId, account.sessionCounter + 1)
+      }
+    })
+  )
+
+  ipcMain.handle(CH.sessionRun, (_e, personaSlug: string, profileId: string, platform: string) =>
+    guard(async () => {
+      const [profile] = (await listProfiles()).filter((p) => p.id === profileId)
+      if (!profile) throw new Error(`no such profile: ${profileId}`)
+      if (isRunning(profileId)) {
+        throw new Error('this profile is open — close it before running a session')
+      }
+      const persona = (await listPersonas()).find((p) => p.slug === personaSlug)
+      if (!persona) throw new Error(`no such persona: ${personaSlug}`)
+      const account = await getAccount(personaSlug, profileId, platform)
+      if (!account) throw new Error(`no ${platform} account on this profile`)
+      if (!account.registered) {
+        throw new Error('register the account inside its profile before running a session')
+      }
+      if (account.health !== 'ok') {
+        throw new Error(
+          `this account is marked "${account.health}" — clear it before running another session`
+        )
+      }
+
+      const registry = await loadRegistry()
+      const followedTargets = new Set(registry.followedTargets)
+      const usedSources = new Set(registry.usedSourceFingerprints)
+      const claimedPosts = new Set(registry.claimedPosts)
+      const usedComments = [...registry.usedComments]
+
+      const outcome = await runWarmupSession({
+        profile,
+        persona,
+        account,
+        managedHandles: await managedHandles(),
+        followedTargets,
+        usedComments,
+        usedSources,
+        claimedPosts
+      })
+
+      // The fleet registry records what actually happened, whether or not the
+      // session finished — a follow that landed is in the graph regardless.
+      await saveRegistry({
+        followedTargets: [...followedTargets],
+        usedComments,
+        usedSourceFingerprints: [...usedSources],
+        claimedPosts: [...claimedPosts]
+      })
+
+      // The counter only advances on a COMPLETED session. Advancing after an
+      // abort would put the account's recorded progress ahead of its real state.
+      if (outcome.completed) {
+        await saveAccount(personaSlug, profileId, {
+          ...account,
+          sessionCounter: account.sessionCounter + 1,
+          lastSessionAt: new Date().toISOString()
+        })
+      }
+
+      return {
+        completed: outcome.completed,
+        sessionIndex: outcome.sessionIndex,
+        egressIp: outcome.egressIp,
+        steps: outcome.steps,
+        error: outcome.error
+      }
     })
   )
 

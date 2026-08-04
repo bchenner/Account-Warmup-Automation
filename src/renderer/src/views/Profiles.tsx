@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import type { CreateProfileInput } from '@shared/ipc'
+import type { CreateProfileInput, SessionPlanView, SessionRunResult } from '@shared/ipc'
 import type { Profile, ProfileRow, Proxy } from '@shared/schemas'
 
 export default function Profiles(): JSX.Element {
@@ -214,20 +214,7 @@ function Row({
             </span>
           </div>
 
-          {row.accounts.length > 0 && (
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {row.accounts.map((a) => (
-                <span
-                  key={a.platform}
-                  className="rounded-md bg-surface-tertiary px-1.5 py-0.5 text-xxs text-neutral-300"
-                >
-                  {a.platform}
-                  {a.username ? ` · ${a.username}` : ' · unregistered'}
-                  {a.health !== 'ok' && <span className="ml-1 text-verdict-warn">{a.health}</span>}
-                </span>
-              ))}
-            </div>
-          )}
+          <Accounts row={row} onChanged={onSaved} onError={onError} />
 
           {row.notes && <p className="mt-2 max-w-2xl text-xs text-neutral-500">{row.notes}</p>}
         </div>
@@ -592,4 +579,227 @@ function Input({
       className="w-full rounded-lg border border-surface-border bg-surface-primary px-2 py-1.5 text-sm text-neutral-200 outline-none placeholder:text-neutral-700 focus:border-neutral-600"
     />
   )
+}
+
+// ---------------------------------------------------------------------------
+// Accounts on a profile
+// ---------------------------------------------------------------------------
+
+const PLATFORMS = ['instagram', 'facebook', 'threads'] as const
+
+/**
+ * The onboarding surface. Registration happens by hand INSIDE the profile —
+ * one device and one IP from the account's first minute — so this records what
+ * the operator did rather than doing it for them.
+ */
+function Accounts({
+  row,
+  onChanged,
+  onError
+}: {
+  row: ProfileRow
+  onChanged: () => void
+  onError: (e: string) => void
+}): JSX.Element {
+  const existing = new Set(row.accounts.map((a) => a.platform))
+  const addable = PLATFORMS.filter((p) => !existing.has(p))
+
+  const add = async (platform: string): Promise<void> => {
+    const res = await window.boiler.addAccount({
+      personaSlug: row.personaSlug,
+      profileId: row.id,
+      platform: platform as 'instagram'
+    })
+    if (!res.ok) onError(res.error)
+    onChanged()
+  }
+
+  return (
+    <div className="mt-3 space-y-2">
+      {row.accounts.map((a) => (
+        <AccountRow key={a.platform} row={row} account={a} onChanged={onChanged} onError={onError} />
+      ))}
+
+      {addable.length > 0 && (
+        <div className="flex items-center gap-2 text-xxs text-neutral-500">
+          <span>add account:</span>
+          {addable.map((p) => (
+            <button
+              key={p}
+              onClick={() => add(p)}
+              className="rounded-md border border-surface-border px-1.5 py-0.5 text-neutral-300 hover:bg-surface-tertiary"
+            >
+              + {p}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function AccountRow({
+  row,
+  account,
+  onChanged,
+  onError
+}: {
+  row: ProfileRow
+  account: ProfileRow['accounts'][number]
+  onChanged: () => void
+  onError: (e: string) => void
+}): JSX.Element {
+  const [username, setUsername] = useState(account.username ?? '')
+  const [plan, setPlan] = useState<SessionPlanView | null>(null)
+  const [running, setRunning] = useState(false)
+  const [result, setResult] = useState<SessionRunResult | null>(null)
+
+  const loadPlan = useCallback(async () => {
+    const res = await window.boiler.sessionPlan(row.personaSlug, row.id, account.platform)
+    if (res.ok) setPlan(res.value)
+  }, [row.personaSlug, row.id, account.platform])
+
+  useEffect(() => {
+    if (account.username) void loadPlan()
+  }, [account.username, loadPlan])
+
+  const register = async (): Promise<void> => {
+    const res = await window.boiler.updateAccount(row.personaSlug, row.id, account.platform, {
+      username: username.trim(),
+      registered: true
+    })
+    if (!res.ok) return onError(res.error)
+    onChanged()
+    void loadPlan()
+  }
+
+  const run = async (): Promise<void> => {
+    setRunning(true)
+    setResult(null)
+    const res = await window.boiler.runSession(row.personaSlug, row.id, account.platform)
+    setRunning(false)
+    if (!res.ok) return onError(res.error)
+    setResult(res.value)
+    onChanged()
+    void loadPlan()
+  }
+
+  const remove = async (): Promise<void> => {
+    const res = await window.boiler.removeAccount(row.personaSlug, row.id, account.platform)
+    if (!res.ok) onError(res.error)
+    onChanged()
+  }
+
+  const registered = !!account.username
+  const due = plan?.dueAt ? plan.dueAt - Date.now() : null
+
+  return (
+    <div className="rounded-lg border border-surface-border bg-surface-primary p-2.5">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs font-medium text-neutral-200">{account.platform}</span>
+        {account.health !== 'ok' && (
+          <span className="rounded-md bg-verdict-warn/20 px-1.5 py-0.5 text-xxs text-yellow-300">
+            {account.health}
+          </span>
+        )}
+
+        {!registered ? (
+          <>
+            <input
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              placeholder="@username you registered"
+              spellCheck={false}
+              className="w-56 rounded-md border border-surface-border bg-surface-secondary px-2 py-1 text-xs text-neutral-200 outline-none placeholder:text-neutral-700 focus:border-neutral-600"
+            />
+            <button
+              onClick={register}
+              disabled={!username.trim()}
+              className="rounded-md bg-neutral-100 px-2 py-1 text-xxs font-medium text-neutral-900 disabled:opacity-40"
+            >
+              Mark registered
+            </button>
+          </>
+        ) : (
+          <span className="font-mono text-xxs text-neutral-400">{account.username}</span>
+        )}
+
+        <div className="ml-auto flex items-center gap-2">
+          {registered && plan && (
+            <span className="text-xxs text-neutral-500">
+              {plan.next ? `session ${plan.next}/${plan.total} · ${plan.estimate}` : 'warmed'}
+            </span>
+          )}
+          {registered && plan?.next && (
+            <button
+              onClick={run}
+              disabled={running}
+              className="rounded-md bg-neutral-100 px-2.5 py-1 text-xxs font-medium text-neutral-900 disabled:opacity-40"
+            >
+              {running ? 'Running…' : 'Run warmup'}
+            </button>
+          )}
+          <button
+            onClick={remove}
+            className="rounded-md border border-surface-border px-1.5 py-1 text-xxs text-neutral-600 hover:text-red-300"
+          >
+            ✕
+          </button>
+        </div>
+      </div>
+
+      {!registered && (
+        <p className="mt-1.5 text-xxs text-neutral-500">
+          Open this profile, sign up on {account.platform} inside that window, then record the
+          username here. Registering inside the profile means one device and one IP from the
+          account&apos;s very first minute — which is when these platforms score it.
+        </p>
+      )}
+
+      {registered && plan && (
+        <p className="mt-1.5 text-xxs text-neutral-500">
+          {plan.next ? (
+            <>
+              <span className={plan.kind === 'rest' ? 'text-neutral-400' : ''}>{plan.label}</span>
+              {due !== null && (
+                <>
+                  {' · '}
+                  {due > 0 ? (
+                    <span>next due in {formatDue(due)}</span>
+                  ) : (
+                    <span className="text-neutral-400">due now</span>
+                  )}
+                </>
+              )}
+            </>
+          ) : (
+            'every session in the script has been completed'
+          )}
+        </p>
+      )}
+
+      {result && (
+        <div className="mt-2 border-t border-surface-border pt-2">
+          <p className={`text-xxs ${result.completed ? 'text-green-300' : 'text-red-300'}`}>
+            session {result.sessionIndex} {result.completed ? 'completed' : 'ABORTED'}
+            {result.egressIp && ` · via ${result.egressIp}`}
+            {result.error && ` · ${result.error}`}
+          </p>
+          {result.steps.map((s, i) => (
+            <p key={i} className="font-mono text-xxs text-neutral-600">
+              {s.action} — {s.detail}
+            </p>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** Countdown to the next session. Informational — Run is never blocked. */
+function formatDue(ms: number): string {
+  const mins = Math.round(ms / 60_000)
+  if (mins < 60) return `${mins}m`
+  const h = Math.floor(mins / 60)
+  return `${h}h ${mins % 60}m`
 }
