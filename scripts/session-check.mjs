@@ -72,6 +72,11 @@ const runnerCtx = {
   usedComments: [],
   usedSources: new Set(),
   claimedPosts: new Set(),
+  followedTargets: new Set(),
+  // One of the fixture's authors is pretended to be ours, to prove the runner
+  // refuses to follow the fleet's own accounts.
+  managedHandles: new Set(['@creator4']),
+  profileValues: { username: 'maya.trains', display_name: 'Maya', bio: 'home workouts', bio_link: 'https://example.com' },
   commentRate: 0.9, // forced high so the check exercises the path
   likeRate: 0.7,
   rng: makeRng('session-check')
@@ -89,7 +94,11 @@ const session = {
     { action: 'watch_videos', count: [3, 5], skipChance: 0 },
     { action: 'like', count: [2, 4], skipChance: 0 },
     { action: 'comment', count: [1, 2], skipChance: 0 },
-    { action: 'search', skipChance: 0 }
+    { action: 'search', skipChance: 0 },
+    { action: 'story_views', count: [4, 6], skipChance: 0 },
+    { action: 'follow', count: [2, 3], skipChance: 0 },
+    { action: 'visit_profiles', count: [2, 3], skipChance: 0 },
+    { action: 'profile_mutation', field: 'username', skipChance: 0 }
   ]
 }
 
@@ -106,6 +115,10 @@ if (!report.completed) console.log(`  ABORTED at ${report.abortedAt}: ${report.e
 
 const liked = await readLog('data-liked')
 const commented = await readLog('data-commented')
+const followed = await readLog('data-followed')
+const visited = await readLog('data-visited')
+const saved = await readLog('data-saved')
+const storiesSeen = Number((await page.getAttribute('body', 'data-stories')) ?? 0)
 const captions = await page.$$eval('[data-post-id]', (ns) =>
   Object.fromEntries(ns.map((n) => [n.dataset.postId, n.querySelector('[data-caption]').textContent]))
 )

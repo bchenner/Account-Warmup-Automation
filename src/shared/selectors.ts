@@ -32,8 +32,32 @@ export const FeedSelectorsSchema = z.object({
   commentInput: z.string().optional(),
   /** Existing comments on a post — the corpus is harvested from these. */
   commentText: z.string().optional(),
+  /** Follow control shown on a post. */
+  followButton: z.string().optional(),
+  /** Link to the author's profile, within a post. */
+  authorLink: z.string().optional(),
   /** Attribute on `post` holding a stable id, used for the comment registry. */
-  postIdAttribute: z.string().default('data-post-id')
+  postIdAttribute: z.string().default('data-post-id'),
+  /** Attribute on `post` holding the author's handle, for the follow registry. */
+  authorAttribute: z.string().default('data-author')
+})
+
+/** Stories are a distinct surface: a tray, then a full-screen viewer. */
+export const StorySelectorsSchema = z.object({
+  /** A story in the tray. Clicking it opens the viewer. */
+  trayItem: z.string(),
+  /** Advance to the next story. */
+  next: z.string(),
+  /** Leave the viewer. */
+  close: z.string()
+})
+
+/** The account's own profile-editing surface. */
+export const ProfileEditSelectorsSchema = z.object({
+  url: z.string(),
+  save: z.string(),
+  /** One selector per editable field the schedule can mutate. */
+  fields: z.record(z.string())
 })
 
 export const SearchSelectorsSchema = z.object({
@@ -47,7 +71,9 @@ export const SelectorSetSchema = z.object({
   platform: z.string(),
   version: z.string(),
   feed: FeedSelectorsSchema,
-  search: SearchSelectorsSchema.optional()
+  search: SearchSelectorsSchema.optional(),
+  stories: StorySelectorsSchema.optional(),
+  profileEdit: ProfileEditSelectorsSchema.optional()
 })
 
 export type SelectorSet = z.infer<typeof SelectorSetSchema>

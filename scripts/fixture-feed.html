@@ -25,10 +25,32 @@
       button[data-liked='1'] { background: #7a1f1f; border-color: #a33; }
       .cmt { color: #aaa; font-size: 13px; margin-top: 6px; }
       .spacer { height: 1400px; }
+      /* An inline `display:flex` beats the `hidden` attribute, which otherwise
+         leaves a full-screen overlay swallowing every click on the feed. */
+      [hidden] { display: none !important; }
     </style>
   </head>
   <body>
     <header><input data-search placeholder="Search" /></header>
+
+    <nav id="tray" style="padding: 10px 16px; border-bottom: 1px solid #262626"></nav>
+
+    <div id="viewer" hidden
+      style="position: fixed; inset: 0; background: #000; z-index: 9; display: flex; align-items: center; justify-content: center; gap: 16px">
+      <span id="story-label" style="color: #eee"></span>
+      <button data-story-next>Next</button>
+      <button data-story-close>Close</button>
+    </div>
+
+    <section style="padding: 16px; border-bottom: 1px solid #262626; max-width: 620px">
+      <h3 style="margin: 0 0 8px">Edit profile</h3>
+      <div><input data-field-username placeholder="username" /></div>
+      <div style="margin-top: 6px"><input data-field-display-name placeholder="display name" /></div>
+      <div style="margin-top: 6px"><textarea data-field-bio placeholder="bio"></textarea></div>
+      <div style="margin-top: 6px"><input data-field-bio-link placeholder="link" /></div>
+      <div style="margin-top: 8px"><button data-save-profile>Save</button></div>
+    </section>
+
     <main id="feed"></main>
     <div class="spacer"></div>
     <script>
@@ -55,16 +77,43 @@
           comments: ['This is the kind of thing I actually needed to see today'] }
       ]
 
-      document.getElementById('feed').innerHTML = POSTS.map((p) => `
-        <article data-post-id="${p.id}">
+      document.getElementById('feed').innerHTML = POSTS.map((p, i) => `
+        <article data-post-id="${p.id}" data-author="@creator${i + 1}">
+          <a href="#profile-${i + 1}" data-author-link>@creator${i + 1}</a>
           ${p.video ? `<video muted playsinline src="${VIDEO}"></video>` : ''}
           <div class="cap" data-caption>${p.cap}</div>
           <div class="tags" data-hashtags>${p.tags}</div>
           ${p.translate ? '<div class="translate" data-translate>See translation</div>' : ''}
-          <div style="margin-top:8px"><button data-like>Like</button></div>
+          <div style="margin-top:8px">
+            <button data-like>Like</button>
+            <button data-follow>Follow</button>
+          </div>
           ${p.comments.map((c) => `<div class="cmt" data-comment>${c}</div>`).join('')}
           <div><input data-comment-input placeholder="Add a comment…" /></div>
         </article>`).join('')
+
+      // Story tray + a viewer that can be advanced and closed.
+      document.getElementById('tray').innerHTML = [1, 2, 3, 4]
+        .map((n) => `<button data-story>story ${n}</button> `)
+        .join('')
+      let storyN = 0
+      const viewer = document.getElementById('viewer')
+      const label = document.getElementById('story-label')
+      document.querySelectorAll('[data-story]').forEach((b) =>
+        b.addEventListener('click', () => {
+          storyN = 1
+          label.textContent = 'story ' + storyN
+          viewer.hidden = false
+        })
+      )
+      document.querySelector('[data-story-next]').addEventListener('click', () => {
+        storyN++
+        label.textContent = 'story ' + storyN
+        sync()
+      })
+      document.querySelector('[data-story-close]').addEventListener('click', () => {
+        viewer.hidden = true
+      })
 
       // Record what the runner did INTO THE DOM, not onto window.
       //
@@ -74,11 +123,41 @@
       // the only surface both sides share.
       const liked = []
       const commented = []
+      const followed = []
+      const visited = []
+      const saved = []
       const sync = () => {
         document.body.setAttribute('data-liked', JSON.stringify(liked))
         document.body.setAttribute('data-commented', JSON.stringify(commented))
+        document.body.setAttribute('data-followed', JSON.stringify(followed))
+        document.body.setAttribute('data-visited', JSON.stringify(visited))
+        document.body.setAttribute('data-saved', JSON.stringify(saved))
+        document.body.setAttribute('data-stories', String(storyN))
       }
       sync()
+
+      document.querySelectorAll('button[data-follow]').forEach((b) => {
+        b.addEventListener('click', (e) => {
+          followed.push(e.target.closest('[data-post-id]').dataset.author)
+          e.target.textContent = 'Following'
+          sync()
+        })
+      })
+      document.querySelectorAll('a[data-author-link]').forEach((a) => {
+        a.addEventListener('click', (e) => {
+          visited.push(e.target.closest('[data-post-id]').dataset.author)
+          sync()
+        })
+      })
+      document.querySelector('[data-save-profile]').addEventListener('click', () => {
+        saved.push({
+          username: document.querySelector('[data-field-username]').value,
+          display_name: document.querySelector('[data-field-display-name]').value,
+          bio: document.querySelector('[data-field-bio]').value,
+          bio_link: document.querySelector('[data-field-bio-link]').value
+        })
+        sync()
+      })
 
       document.querySelectorAll('button[data-like]').forEach((b) => {
         b.addEventListener('click', (e) => {

@@ -9,6 +9,7 @@ import {
   mousePath,
   scrollPlan,
   sessionMood,
+  shuffle,
   traitsFor,
   typingDelays,
   uniform,
@@ -68,6 +69,15 @@ export type RunnerContext = {
   /** Posts another managed account already commented on. */
   claimedPosts: Set<string>
   /**
+   * Handles any account in the fleet has already followed. Ticket 12's core
+   * invariant: no two managed accounts build the same follow graph.
+   */
+  followedTargets: Set<string>
+  /** Handles belonging to the fleet itself — never follow our own accounts. */
+  managedHandles: ReadonlySet<string>
+  /** Values written when a profile_mutation step runs, keyed by field. */
+  profileValues?: Record<string, string>
+  /**
    * Probability of commenting on an item the persona engaged with. Low by
    * design — most people overwhelmingly lurk, and an account that comments on
    * everything it likes is a pattern regardless of what the comments say.
@@ -98,6 +108,7 @@ export type SessionReport = {
 type Item = {
   index: number
   postId: string
+  author: string
   caption: string
   hashtags: string[]
   hasVideo: boolean
@@ -135,6 +146,7 @@ async function readItems(page: Page, sel: SelectorSet): Promise<Item[]> {
         return {
           index,
           postId: n.getAttribute(s.postIdAttribute) || 'idx-' + index,
+          author: n.getAttribute(s.authorAttribute) || '',
           caption,
           hashtags: (rawTags.match(/#[\w]+/g) || []).map((t: string) => t.slice(1)),
           hasVideo: s.video ? !!n.querySelector(s.video) : false,
@@ -148,7 +160,8 @@ async function readItems(page: Page, sel: SelectorSet): Promise<Item[]> {
       video: f.video,
       translationPrompt: f.translationPrompt,
       commentText: f.commentText,
-      postIdAttribute: f.postIdAttribute
+      postIdAttribute: f.postIdAttribute,
+      authorAttribute: f.authorAttribute
     }
   )
 }
@@ -418,14 +431,127 @@ async function runStep(page: Page, step: Step, env: StepEnv): Promise<StepReport
       return { action: step.action, seen: 0, engaged: 0, detail: `searched "${query}"` }
     }
 
-    // Not yet implemented. Aborting is deliberate: a step that silently does
-    // nothing would advance the session counter while the account's real state
-    // stands still, which is exactly the divergence the design forbids.
-    case 'story_views':
-    case 'follow':
-    case 'visit_profiles':
-    case 'profile_mutation':
-      throw new Error(`step "${step.action}" is not implemented yet`)
+    case 'story_views': {
+      if (!sel.stories) throw new SelectorMiss('stories', 'story_views')
+      const want = countFor(step.count ?? [10, 15], mood, rng)
+      const tray = page.locator(sel.stories.trayItem)
+      if ((await tray.count()) === 0) throw new SelectorMiss(sel.stories.trayItem, 'story_views')
+
+      await tray.first().click()
+      let viewed = 0
+      for (; viewed < want; viewed++) {
+        // Stories are short and skimmed far faster than feed posts.
+        await sleep(dwellMs(traits, mood, rng) * uniform(0.25, 0.7, rng))
+        const next = page.locator(sel.stories.next)
+        if ((await next.count()) === 0) break
+        await next.first().click()
+      }
+      const close = page.locator(sel.stories.close)
+      if ((await close.count()) > 0) await close.first().click()
+      return { action: step.action, seen: viewed, engaged: viewed, detail: `viewed ${viewed} stories` }
+    }
+
+    case 'follow': {
+      if (!sel.feed.followButton) throw new SelectorMiss('feed.followButton', 'follow')
+      const want = countFor(step.count ?? [4, 8], mood, rng)
+      const items = await readItems(page, sel)
+      env.harvest(items)
+      let followed = 0
+      let skipped = 0
+
+      // Shuffled, so two accounts never traverse the same candidate list in the
+      // same order even when their feeds overlap.
+      for (const item of shuffle(items, rng)) {
+        if (followed >= want) break
+        const handle = item.author
+        if (!handle) continue
+        // Never follow our own accounts, and never a target the fleet already
+        // holds. Both are ticket 12 invariants and both are checked here rather
+        // than hoped for.
+        if (ctx.managedHandles.has(handle) || ctx.followedTargets.has(handle)) {
+          skipped++
+          continue
+        }
+        const verdict = shouldEngage(
+          {
+            caption: item.caption,
+            hashtags: item.hashtags,
+            hasTranslationPrompt: item.hasTranslationPrompt
+          },
+          ctx.taste,
+          rng
+        )
+        if (!verdict.engage) continue
+
+        await sleep(dwellMs(traits, mood, rng))
+        await clickIn(page, sel.feed.post, item.index, sel.feed.followButton, 'follow', rng)
+        ctx.followedTargets.add(handle)
+        followed++
+        // Follows are the most rate-sensitive action in warmup. Leave real gaps
+        // rather than firing a burst.
+        await sleep(uniform(4000, 14_000, rng) * traits.tempo * mood)
+      }
+      return {
+        action: step.action,
+        seen: items.length,
+        engaged: followed,
+        detail: `followed ${followed}${skipped ? `, skipped ${skipped} already in the fleet graph` : ''}`
+      }
+    }
+
+    case 'visit_profiles': {
+      if (!sel.feed.authorLink) throw new SelectorMiss('feed.authorLink', 'visit_profiles')
+      const want = countFor(step.count ?? [2, 5], mood, rng)
+      const items = await readItems(page, sel)
+      let visited = 0
+
+      for (const item of shuffle(items, rng)) {
+        if (visited >= want) break
+        const link = page.locator(sel.feed.post).nth(item.index).locator(sel.feed.authorLink)
+        if ((await link.count()) === 0) continue
+        await clickIn(page, sel.feed.post, item.index, sel.feed.authorLink, 'visit_profiles', rng)
+        // Look around, then come back. The visit is the point, not the target.
+        await sleep(dwellMs(traits, mood, rng) * uniform(1.2, 3, rng))
+        await page.goBack().catch(() => undefined)
+        await sleep(uniform(800, 2600, rng) * traits.tempo)
+        visited++
+      }
+      return { action: step.action, seen: items.length, engaged: visited, detail: `visited ${visited}` }
+    }
+
+    case 'profile_mutation': {
+      const pe = sel.profileEdit
+      if (!pe) throw new SelectorMiss('profileEdit', 'profile_mutation')
+      const field = step.field
+      if (!field) throw new Error('profile_mutation step declares no field')
+      const fieldSel = pe.fields[field]
+      if (!fieldSel) throw new SelectorMiss(`profileEdit.fields.${field}`, 'profile_mutation')
+
+      const value = ctx.profileValues?.[field]
+      // Refuse rather than write a placeholder. The profile is the account's
+      // identity; inventing one is worse than not changing it at all.
+      if (!value) throw new Error(`no value supplied for profile field "${field}"`)
+
+      if (pe.url && pe.url !== 'fixture') await page.goto(pe.url)
+      const input = page.locator(fieldSel)
+      if ((await input.count()) === 0) throw new SelectorMiss(fieldSel, 'profile_mutation')
+
+      await input.first().click()
+      await input.first().fill('')
+      const delays = typingDelays(value, traits, rng)
+      for (const [i, ch] of [...value].entries()) {
+        await page.keyboard.type(ch)
+        await sleep(delays[i])
+      }
+      // A beat before committing, as someone re-reading what they typed.
+      await sleep(dwellMs(traits, mood, rng))
+      const save = page.locator(pe.save)
+      if ((await save.count()) === 0) throw new SelectorMiss(pe.save, 'profile_mutation')
+      await save.first().click()
+      await sleep(uniform(1200, 3500, rng))
+
+      return { action: step.action, seen: 1, engaged: 1, detail: `set ${field}` }
+    }
 
     default:
       throw new Error(`unknown step action: ${String(step.action)}`)
@@ -449,5 +575,9 @@ export const IMPLEMENTED_STEPS = [
   'watch_videos',
   'like',
   'comment',
-  'search'
+  'search',
+  'story_views',
+  'follow',
+  'visit_profiles',
+  'profile_mutation'
 ] as const
