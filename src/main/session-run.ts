@@ -171,6 +171,8 @@ export async function runWarmupSession(args: {
       taste: withPersonality(NICHES[nicheKey].taste, persona.slug),
       emoji: emojiHabitFor(persona.slug),
       niche: nicheKey,
+      // Confirm friend requests only from where this persona says it lives.
+      requireCountry: persona.country,
       selectors,
       // The niche KEY is not a search query — typing "home-fitness" into
       // Instagram finds nothing. Search the niche's own weighted interests.

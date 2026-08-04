@@ -37,7 +37,7 @@ describe('engagement levels are ceilings', () => {
   // Every write the runner can perform. A level that disallows one must not
   // contain it AT ALL — a rare action still happens, so a ceiling expressed as
   // a low skipChance is not a ceiling.
-  const WRITES = ['like', 'follow', 'comment', 'profile_mutation', 'friend_request', 'join_group']
+  const WRITES = ['like', 'follow', 'comment', 'profile_mutation', 'accept_friend', 'join_group']
 
   for (const platform of PLATFORMS) {
     describe(platform, () => {
@@ -49,7 +49,7 @@ describe('engagement levels are ceilings', () => {
       it('light never sends friend requests, joins groups, comments or edits the profile', () => {
         const actions = actionsIn('light', platform)
         expect([...actions]).toContain('like')
-        for (const w of ['comment', 'profile_mutation', 'friend_request', 'join_group']) {
+        for (const w of ['comment', 'profile_mutation', 'accept_friend', 'join_group']) {
           expect([...actions], `light contains ${w}`).not.toContain(w)
         }
       })
@@ -92,7 +92,7 @@ describe('engagement levels are ceilings', () => {
       for (const level of ['light', 'standard', 'establish']) {
         const comment = firstOf(level, 'comment', platform)
         if (comment < 0) continue // the level never comments, which is allowed
-        for (const earlier of ['like', 'follow', 'friend_request']) {
+        for (const earlier of ['like', 'follow', 'accept_friend']) {
           const at = firstOf(level, earlier, platform)
           if (at >= 0) {
             expect(at, `${platform}/${level}: ${earlier} before comment`).toBeLessThan(comment)
@@ -118,30 +118,54 @@ describe('engagement levels are ceilings', () => {
     expect(firstOf('establish', 'follow')).toBeLessThan(firstOf('establish', 'like'))
   })
 
-  it('Facebook asks nobody for consent before it has earned the right to', () => {
-    // A friend request is bidirectional and the UNACCEPTED ones are what get an
-    // account limited, so it must come after the actions that need no consent.
-    for (const level of ['standard', 'establish']) {
-      const friend = firstOf(level, 'friend_request', 'facebook')
-      expect(friend, `${level} must send friend requests`).toBeGreaterThanOrEqual(0)
-      for (const cheaper of ['like', 'follow']) {
-        const at = firstOf(level, cheaper, 'facebook')
-        expect(at, `facebook/${level}: ${cheaper} before friend_request`).toBeLessThan(friend)
+  it('NO level, on any platform, ever sends a friend request', () => {
+    // The account never initiates. All of the risk in a friend edge sits on the
+    // sending side — an outgoing request needs a stranger to accept it, and the
+    // unaccepted ones are what get an account limited. There is no step kind
+    // for it, and there must be no step for it in any programme.
+    for (const platform of PLATFORMS) {
+      for (const level of ALL_LEVELS) {
+        const actions = planSessions(load(level, platform), 'maya-x').flatMap((s) =>
+          s.steps.map((t) => t.action)
+        )
+        expect(actions, `${platform}/${level}`).not.toContain('friend_request')
+        expect(actions, `${platform}/${level}`).not.toContain('add_friend')
       }
     }
   })
 
-  it('Facebook friend requests never ramp', () => {
-    // Everything else in a programme grows. This one must not: a warming
-    // account that suddenly sends ten requests is doing the single thing the
-    // level exists to avoid.
-    for (const level of ['standard', 'establish']) {
-      const counts = planSessions(load(level, 'facebook'), 'maya-x')
-        .flatMap((s) => s.steps)
-        .filter((t) => t.action === 'friend_request')
-        .map((t) => t.count?.[1] ?? 0)
-      expect(counts.length, level).toBeGreaterThan(0)
-      for (const c of counts) expect(c, `${level}: ${c} friend requests in one session`).toBeLessThanOrEqual(3)
+  it('no level creates a friend edge at all, in either direction', () => {
+    // Sending has no step kind and never will. Accepting is switched off for
+    // now — the capability is built and tested, but nothing schedules it, so
+    // no programme currently produces a friend.
+    for (const platform of PLATFORMS) {
+      for (const level of ALL_LEVELS) {
+        const actions = planSessions(load(level, platform), 'maya-x').flatMap((s) =>
+          s.steps.map((t) => t.action)
+        )
+        expect(actions, `${platform}/${level}`).not.toContain('accept_friend')
+      }
+    }
+  })
+
+  it('if acceptance is switched back on, it stays late and small', () => {
+    // Guards the shape rather than the presence, so re-enabling it cannot
+    // quietly reintroduce a burst or put it ahead of the cheaper actions.
+    for (const platform of PLATFORMS) {
+      for (const level of ALL_LEVELS) {
+        const plan = planSessions(load(level, platform), 'maya-x')
+        const accept = plan.findIndex((s) => s.steps.some((t) => t.action === 'accept_friend'))
+        if (accept < 0) continue
+        for (const cheaper of ['like', 'follow']) {
+          const at = firstOf(level, cheaper, platform)
+          if (at >= 0) {
+            expect(at, `${platform}/${level}: ${cheaper} before accept_friend`).toBeLessThan(accept)
+          }
+        }
+        for (const step of plan.flatMap((s) => s.steps).filter((t) => t.action === 'accept_friend')) {
+          expect(step.count?.[1] ?? 0, `${platform}/${level}: confirmations per session`).toBeLessThanOrEqual(2)
+        }
+      }
     }
   })
 

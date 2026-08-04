@@ -68,27 +68,45 @@ export const SearchSelectorsSchema = z.object({
 })
 
 /**
- * People suggestions — Facebook's friend surface.
+ * INCOMING friend requests — Facebook's friend surface, read-only in one
+ * direction.
  *
- * A friend request is not a follow. It is bidirectional and needs the other
- * person to accept, so a pile of pending requests nobody answered is itself
- * the signal that gets an account limited. That makes the SOURCE matter:
- * suggestions ("People you may know") are drawn from mutual connections and
- * get accepted; strangers from search do not.
+ * There is deliberately no "Add friend" selector here. The account never sends
+ * a request: an outgoing request needs a stranger to accept it, and the
+ * unaccepted ones are what get an account limited. Accepting one that arrived
+ * carries none of that, so this surface is only ever the pending-requests list.
  */
 export const PeopleSelectorsSchema = z.object({
-  /** Where suggestions live, e.g. the friends page. */
+  /** Where incoming friend requests are listed. */
   url: z.string(),
-  /** One suggestion card. */
+  /**
+   * An element present on that page whether or not any requests are pending.
+   *
+   * Without it, "nobody has sent a request" and "the selector broke" look
+   * identical — and for a warming account the first is the normal case, so
+   * treating an empty list as a failure would abort almost every session.
+   */
+  container: z.string(),
+  /** One pending-request card. Zero of these is a normal, expected state. */
   card: z.string(),
-  /** The "Add friend" control, within a card. */
-  addButton: z.string(),
+  /** The "Confirm" control, within a card. */
+  acceptButton: z.string(),
   /** Name shown on the card, used to keep the fleet's graphs disjoint. */
   name: z.string().optional(),
   /** Attribute on `card` holding a stable identifier for that person. */
   idAttribute: z.string().default('data-person-id'),
   /** Optional: mutual-friend text, the best available proxy for plausibility. */
-  mutuals: z.string().optional()
+  mutuals: z.string().optional(),
+  /**
+   * Link to the requester's profile, within a card.
+   *
+   * Needed because the request card does NOT show a country. Confirming only
+   * people from the account's own country means opening the profile to read
+   * one — which is also what a person does before confirming a stranger.
+   */
+  profileLink: z.string().optional(),
+  /** The location line on that profile, e.g. "Lives in Austin, Texas". */
+  profileLocation: z.string().optional()
 })
 
 /** Groups — a Facebook surface with no Instagram equivalent. */

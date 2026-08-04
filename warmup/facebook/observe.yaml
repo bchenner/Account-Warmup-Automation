@@ -5,10 +5,11 @@
 # distributed. Reading the feed and watching Reels creates no public artifact,
 # no friend edge, and no group membership.
 #
-# On Facebook the absent actions matter more than on Instagram. A friend
-# request is bidirectional and visible from both ends, and a group join is a
-# membership anyone can enumerate — neither can be quietly undone, so an
-# account under scrutiny does neither.
+# On Facebook the absent actions matter more than on Instagram. A confirmed
+# friend is visible from both ends and a group join is a membership anyone can
+# enumerate — neither can be quietly undone, so an account under scrutiny does
+# neither. Sending a friend request is absent from every level; the account
+# never initiates.
 #
 # When this finishes, move the account to `light` — it does not loop.
 

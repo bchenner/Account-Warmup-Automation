@@ -24,11 +24,18 @@ export const STEP_KINDS = [
   'like',
   'comment',
   'profile_mutation',
-  // Facebook-only. Instagram has no equivalent of either, and Facebook warmup
-  // without them optimises the wrong variable: Meta's own published entity
-  // classifier weights WHO an account is connected to over how fast it acts,
-  // and on Facebook that means the friend graph, not follows.
-  'friend_request',
+  // Facebook-only.
+  //
+  // Note what is NOT here: sending a friend request. The account never
+  // initiates. An outgoing request has to be accepted by a stranger, and it is
+  // the UNACCEPTED ones that get an account limited — the risk is entirely on
+  // the sending side. Accepting an incoming request carries none of it, and is
+  // what a real person does with a notification anyway.
+  //
+  // The trade-off is honest: an account nobody friends builds no friend graph,
+  // and on Facebook that graph is the signal Meta weights most. This buys
+  // safety at the cost of the graph staying thin.
+  'accept_friend',
   'join_group',
   'idle'
 ] as const

@@ -17,6 +17,7 @@ import {
   type Traits
 } from '@shared/human'
 import { shouldEngage, watchPlan, type TasteProfile } from '@shared/content'
+import { matchesCountry } from '@shared/geo'
 import { decorate, type EmojiHabit } from '@shared/emoji'
 import {
   assessComment,
@@ -103,6 +104,18 @@ export type RunnerContext = {
   commentRate?: number
   /** Probability of liking an engaged item. */
   likeRate?: number
+  /**
+   * Probability of confirming any one incoming friend request. Defaults to the
+   * persona's own habit, which is never 1 — confirming everything the instant
+   * it arrives is as much a pattern as confirming nothing.
+   */
+  acceptRate?: number
+  /**
+   * ISO country the account claims to live in. When set, an incoming friend
+   * request is only confirmed if the requester's profile positively says they
+   * are in that country — unknown and unreadable both count as no.
+   */
+  requireCountry?: string
   rng?: Rng
 }
 
@@ -533,20 +546,35 @@ async function runStep(page: Page, step: Step, env: StepEnv): Promise<StepReport
       }
     }
 
-    case 'friend_request': {
+    case 'accept_friend': {
       const people = sel.people
-      if (!people) throw new SelectorMiss('people', 'friend_request')
-      const want = countFor(step.count ?? [2, 4], mood, rng)
+      if (!people) throw new SelectorMiss('people', 'accept_friend')
+      const want = countFor(step.count ?? [1, 2], mood, rng)
 
       await page.goto(people.url, { waitUntil: 'domcontentloaded' })
       await sleep(uniform(1500, 4000, rng) * traits.tempo)
 
+      // The container has to be there; the cards do not. An account nobody has
+      // friended has an empty list every session, and that is the normal state
+      // rather than a broken selector. Checking the container separately is
+      // what keeps "empty" and "broken" distinguishable.
+      if ((await page.locator(people.container).count()) === 0) {
+        throw new SelectorMiss('people.container', 'accept_friend')
+      }
+
       const cards = page.locator(people.card)
       const total = await cards.count()
-      if (total === 0) throw new SelectorMiss('people.card', 'friend_request')
+      if (total === 0) {
+        return {
+          action: step.action,
+          seen: 0,
+          engaged: 0,
+          detail: 'no pending requests'
+        }
+      }
 
-      // Read identities up front: sending a request re-renders the list, so
-      // indices taken during the loop drift.
+      // Read identities up front: accepting re-renders the list, so indices
+      // taken during the loop drift.
       const ids: string[] = []
       for (let i = 0; i < total; i++) {
         const id =
@@ -555,42 +583,103 @@ async function runStep(page: Page, step: Step, env: StepEnv): Promise<StepReport
         ids.push((id ?? '').trim())
       }
 
-      let sent = 0
+      // Seeded per account, so one persona clears its requests and another sits
+      // on them for days. Accepting everything the moment it arrives is as much
+      // a pattern as accepting nothing.
+      const rate = ctx.acceptRate ?? acceptHabitFor(ctx.accountId)
+
+      let accepted = 0
+      let ignored = 0
       let skipped = 0
+      let foreign = 0
+      let unreadable = 0
       for (const index of shuffle([...ids.keys()], rng)) {
-        if (sent >= want) break
+        if (accepted >= want) break
         const id = ids[index]
         if (!id) continue
-        // Never friend our own accounts, and never someone the fleet already
-        // holds. On Facebook a shared friend is a visible mutual connection
-        // between two accounts that are supposed to be strangers.
-        if (ctx.managedHandles.has(id) || ctx.friendedTargets.has(id)) {
+        // Never accept one of our own accounts. Two managed identities becoming
+        // friends is a mutual connection visible from both ends — the single
+        // clearest way to tie a fleet together.
+        if (ctx.managedHandles.has(id)) {
           skipped++
           continue
         }
+        if (ctx.friendedTargets.has(id)) {
+          skipped++
+          continue
+        }
+        // Left pending, not declined. Ignoring a request is the most common
+        // thing people do with one, and it costs the account nothing.
+        if (rng() > rate) {
+          ignored++
+          continue
+        }
 
-        const card = cards.nth(index)
-        const button = card.locator(people.addButton)
+        // Only confirm people from the country this account claims to live in.
+        //
+        // The request card carries no country, so the profile has to be opened
+        // to read one — which is also what a person does before confirming a
+        // stranger. FAIL CLOSED: a location that cannot be read, or cannot be
+        // positively identified, is not a match. An account that confirms
+        // whoever happens to ask builds a friend graph that looks nothing like
+        // the place its IP says it lives.
+        if (ctx.requireCountry) {
+          if (!people.profileLink || !people.profileLocation) {
+            unreadable++
+            continue
+          }
+          const link = cards.nth(index).locator(people.profileLink)
+          if ((await link.count()) === 0) {
+            unreadable++
+            continue
+          }
+
+          await sleep(dwellMs(traits, mood, rng))
+          await link.first().click({ timeout: 10_000 })
+          await page.waitForLoadState('domcontentloaded').catch(() => undefined)
+          await sleep(uniform(1200, 3800, rng) * traits.tempo)
+
+          const where = page.locator(people.profileLocation)
+          const text = (await where.count()) > 0 ? await where.first().textContent() : null
+
+          // Read it, look around a moment, then come back to the list.
+          await sleep(dwellMs(traits, mood, rng))
+          await page.goBack().catch(() => undefined)
+          await page.waitForLoadState('domcontentloaded').catch(() => undefined)
+          await sleep(uniform(900, 2600, rng) * traits.tempo)
+
+          if (!text) {
+            unreadable++
+            continue
+          }
+          if (!matchesCountry(text, ctx.requireCountry)) {
+            foreign++
+            continue
+          }
+        }
+
+        const button = cards.nth(index).locator(people.acceptButton)
         if ((await button.count()) === 0) continue
 
-        // Look at who this is before adding them, the way a person would.
+        // Look at who this is before confirming, the way a person would.
         await sleep(dwellMs(traits, mood, rng))
         await button.first().click({ timeout: 10_000 })
         ctx.friendedTargets.add(id)
-        sent++
-        // The most rate-sensitive action on the platform: unaccepted requests
-        // are what "adding friends too fast" is actually measuring, so these
-        // gaps are deliberately wider than a follow's.
-        await sleep(uniform(8000, 25_000, rng) * traits.tempo * mood)
+        accepted++
+        await sleep(uniform(3000, 11_000, rng) * traits.tempo * mood)
       }
 
+      const notes = [
+        ignored ? `left ${ignored} pending` : '',
+        foreign ? `passed over ${foreign} outside ${ctx.requireCountry}` : '',
+        unreadable ? `passed over ${unreadable} with no readable location` : '',
+        skipped ? `skipped ${skipped} already in the fleet graph` : ''
+      ].filter(Boolean)
       return {
         action: step.action,
         seen: total,
-        engaged: sent,
-        detail: `sent ${sent} friend request${sent === 1 ? '' : 's'}${
-          skipped ? `, skipped ${skipped} already in the fleet graph` : ''
-        }`
+        engaged: accepted,
+        detail: `accepted ${accepted}${notes.length ? `, ${notes.join(', ')}` : ''}`
       }
     }
 
@@ -715,6 +804,19 @@ async function runStep(page: Page, step: Step, env: StepEnv): Promise<StepReport
 export function commentHabitFor(accountId: string): number {
   const rng = makeRng(`comment:${accountId}`)
   return chance(0.25, rng) ? 0 : uniform(0.05, 0.22, rng)
+}
+
+/**
+ * How readily this account confirms an incoming friend request, seeded per
+ * account so one persona clears its list and another sits on it for days.
+ *
+ * Never 1. An account that confirms every request the moment it appears is as
+ * much a pattern as one that never does, and leaving some pending is both the
+ * commonest real behaviour and free.
+ */
+export function acceptHabitFor(accountId: string): number {
+  const rng = makeRng(`accept:${accountId}`)
+  return uniform(0.25, 0.75, rng)
 }
 
 /** Steps the runner can currently execute end-to-end. */

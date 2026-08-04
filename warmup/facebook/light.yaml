@@ -1,16 +1,17 @@
 # LEVEL 2 — Light. Consumption plus likes and Page follows. No friends yet.
 #
 # Following a Page is unidirectional and needs nobody's consent, which makes it
-# the cheapest way to give an account a feed worth reading. A FRIEND request is
-# a different thing entirely — it asks a person to accept, and a pile of
-# unanswered requests is what "adding friends too fast" actually measures. That
-# is level 3.
+# the cheapest way to give an account a feed worth reading.
 #
 # Deliberately absent:
-#   - friend_request  — needs acceptance; the account is not ready to be judged
-#   - join_group      — a visible, enumerable membership
-#   - comment         — public text
+#   - accept_friend    — a confirmed friend is a permanent edge visible from
+#                        both ends. Currently switched off at EVERY level
+#   - join_group       — a visible, enumerable membership
+#   - comment          — public text
 #   - profile_mutation — never on an aged account, at any level
+#
+# Sending a friend request is absent from EVERY level, not just this one. The
+# account never initiates; see standard.yaml for why.
 
 platform: facebook
 version: '2026.08-light-a'

@@ -46,14 +46,19 @@ stories:
   next: 'div[role="button"][aria-label="Next card"]'
   close: 'div[role="button"][aria-label="Close"]'
 
-# The friend graph. On Facebook this is the signal Meta's own published entity
-# classifier weights most heavily — suggestions come from mutual connections
-# and get accepted, whereas strangers from search do not, and it is the
-# unaccepted requests that get an account limited.
+# INCOMING friend requests only. Note that this points at /friends/requests,
+# not /friends/suggestions, and that there is no "Add friend" selector anywhere
+# in this file — the account never initiates.
+#
+# `container` is the part that matters operationally: the requests page exists
+# whether or not anyone has sent anything, and for a warming account nobody
+# usually has. Without a container to check, an empty list and a broken
+# selector look identical, and the runner would abort almost every session.
 people:
-  url: https://www.facebook.com/friends/suggestions
+  url: https://www.facebook.com/friends/requests
+  container: 'div[role="main"]'
   card: 'div[role="listitem"]'
-  addButton: 'div[role="button"][aria-label^="Add friend"]'
+  acceptButton: 'div[role="button"][aria-label^="Confirm"]'
   name: 'a[role="link"] span'
   idAttribute: 'data-person-id'
   mutuals: 'text=/mutual friend/'

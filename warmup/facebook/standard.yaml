@@ -10,13 +10,22 @@
 #   like           invisible, reversible
 #   follow (Page)  unidirectional, needs nobody's consent
 #   join_group     a visible membership, but not tied to a person
-#   friend_request bidirectional, needs acceptance, and the unaccepted ones are
-#                  what get an account limited
 #   comment        public text under someone else's post
 #
-# Friend requests stay at 1–3 per session for the entire programme. They never
-# ramp. A warming account that suddenly sends ten is doing the one thing this
-# whole level exists to avoid.
+# NO FRIEND EDGES AT ALL, in either direction.
+#
+# Sending is out permanently: an outgoing request needs a stranger to accept,
+# and the unaccepted ones are what get an account limited, so all of that risk
+# sits on the sending side. There is no step kind for it.
+#
+# ACCEPTING is out for now, by choice rather than by design. The capability
+# exists and is tested — `accept_friend`, which only ever confirms requests that
+# arrived, only from the account's own country, and only after opening the
+# profile to check. Turning it back on is adding a step to this file. Until
+# then this programme creates no friend edges whatsoever.
+#
+# The cost is real: an account with no friends builds no friend graph, and on
+# Facebook that graph is what Meta's classifier weights most heavily.
 #
 # Nothing here touches the profile — an aged account already has one, and
 # rewriting it is the account-takeover signature. Use `establish` for accounts
@@ -90,7 +99,7 @@ sessions:
         skipChance: 0.3
 
   - sessions: [19, 24]
-    label: First friend requests — the slowest thing in the programme
+    label: Profile visits — looking around without acting
     steps:
       - action: feed_scroll
         seconds: [150, 320]
@@ -98,17 +107,12 @@ sessions:
         count: [3, 8]
       - action: like
         count: [2, 6]
-      # Drawn from suggestions, which come from mutual connections, so they get
-      # accepted. Requests to strangers do not, and unaccepted requests are the
-      # thing being counted against the account.
-      - action: friend_request
-        count: [1, 3]
       - action: visit_profiles
         count: [1, 3]
         skipChance: 0.4
 
   - sessions: [25, 28]
-    label: Comments enter, friends continue at the same rate
+    label: Comments enter
     steps:
       - action: feed_scroll
         seconds: [150, 300]
@@ -119,9 +123,6 @@ sessions:
       - action: comment
         count: [1, 2]
         skipChance: 0.45
-      - action: friend_request
-        count: [1, 3]
-        skipChance: 0.25
       - action: join_group
         count: [1, 1]
         skipChance: 0.7

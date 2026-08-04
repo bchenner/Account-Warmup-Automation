@@ -1,17 +1,18 @@
 <!doctype html>
 <!--
-  A fake friend-suggestion surface, for proving friend_request works before it
-  is ever pointed at Facebook.
+  A fake INCOMING friend-request surface, for proving accept_friend works
+  before it is ever pointed at Facebook. There is no "Add friend" control here
+  by design: the account never sends a request.
 
   Deliberately includes a person the fleet already holds and one of the fleet's
-  own accounts: both must be skipped. On Facebook a shared friend is a mutual
-  connection visible from BOTH accounts, which is exactly the link that makes a
-  cluster of accounts look like a cluster.
+  own accounts: both must be skipped. On Facebook a confirmed friend is a
+  mutual connection visible from BOTH accounts, which is exactly the link that
+  makes a cluster of accounts look like a cluster.
 -->
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>fixture people</title>
+    <title>fixture friend requests</title>
     <style>
       body { font: 15px/1.5 system-ui; margin: 0; background: #111; color: #eee; padding: 16px; }
       [role='listitem'] { border: 1px solid #262626; border-radius: 10px; padding: 12px; margin-bottom: 10px; max-width: 520px; }
@@ -21,45 +22,63 @@
     </style>
   </head>
   <body>
-    <h3>People you may know</h3>
-    <div id="list"></div>
+    <h3>Friend requests</h3>
+    <div role="main"><div id="list"></div></div>
     <script>
+      // Location is NOT on the request card, exactly as on Facebook — it only
+      // exists on each person's profile, which is why the runner has to look.
       const PEOPLE = [
-        { id: 'person-1', name: 'Dana Whitfield', mutuals: 4 },
-        { id: 'person-2', name: 'Marcus Lee', mutuals: 2 },
-        // Already friended by another account in the fleet.
-        { id: 'person-3', name: 'Priya Raman', mutuals: 7 },
-        { id: 'person-4', name: 'Tom Alvarez', mutuals: 1 },
-        // One of our own accounts. Friending it would join two identities.
-        { id: 'fleet-own-account', name: 'Our Other Persona', mutuals: 3 },
-        { id: 'person-5', name: 'Sofia Grant', mutuals: 5 },
-        { id: 'person-6', name: 'Ethan Brooks', mutuals: 2 }
+        { id: 'person-1', name: 'Dana Whitfield', mutuals: 4, where: 'Lives in Austin, TX' },
+        { id: 'person-2', name: 'Marcus Lee', mutuals: 2, where: 'Lives in Springfield, Massachusetts' },
+        // Already a friend of another account in the fleet.
+        { id: 'person-3', name: 'Priya Raman', mutuals: 7, where: 'Lives in Portland, OR' },
+        // Not US. Must be passed over however appealing the card looks.
+        { id: 'person-4', name: 'Tom Alvarez', mutuals: 1, where: 'Lives in Toronto, Ontario' },
+        // One of our own accounts. Confirming it would join two identities.
+        { id: 'fleet-own-account', name: 'Our Other Persona', mutuals: 3, where: 'Lives in Denver, CO' },
+        // Not US.
+        { id: 'person-5', name: 'Sofia Grant', mutuals: 5, where: 'Lives in London, United Kingdom' },
+        // No location on the profile at all — unreadable is NOT a match.
+        { id: 'person-6', name: 'Ethan Brooks', mutuals: 2, where: null },
+        { id: 'person-7', name: 'Grace Miller', mutuals: 6, where: 'Lives in Reno, NV' },
+        // Ambiguous: also a country. Must not be read as the US state.
+        { id: 'person-8', name: 'Nika Beridze', mutuals: 2, where: 'Lives in Georgia' }
       ]
 
       document.getElementById('list').innerHTML = PEOPLE.map(
         (p) => `
         <div role="listitem" data-person-id="${p.id}">
-          <a role="link" href="#${p.id}"><span>${p.name}</span></a>
+          <a role="link" data-profile href="?profile=${p.id}"><span>${p.name}</span></a>
           <div class="mutuals">${p.mutuals} mutual friends</div>
           <div style="margin-top:8px">
-            <button role="button" aria-label="Add friend: ${p.name}">Add friend</button>
+            <button role="button" aria-label="Confirm ${p.name}'s request">Confirm</button>
           </div>
         </div>`
       ).join('')
 
+      // A profile view, reached by clicking a name. Real navigation, so the
+      // runner's goBack() has something to go back to.
+      const viewing = new URLSearchParams(location.search).get('profile')
+      if (viewing) {
+        const person = PEOPLE.find((p) => p.id === viewing)
+        document.body.innerHTML =
+          '<h3>' + (person ? person.name : 'Unknown') + '</h3>' +
+          (person && person.where ? '<div data-location>' + person.where + '</div>' : '')
+      }
+
       // Recorded into the DOM, not onto window: patchright evaluates in an
       // isolated world, so page globals are invisible to the harness.
-      const sent = []
-      document.querySelectorAll('button[aria-label^="Add friend"]').forEach((b) => {
+      const accepted = []
+      document.querySelectorAll('button[aria-label^="Confirm"]').forEach((b) => {
         b.addEventListener('click', (e) => {
           const card = e.target.closest('[data-person-id]')
-          sent.push(card.dataset.personId)
+          accepted.push(card.dataset.personId)
           e.target.dataset.sent = '1'
-          e.target.textContent = 'Requested'
-          document.body.setAttribute('data-sent', JSON.stringify(sent))
+          e.target.textContent = 'Friends'
+          document.body.setAttribute('data-accepted', JSON.stringify(accepted))
         })
       })
-      document.body.setAttribute('data-sent', JSON.stringify(sent))
+      document.body.setAttribute('data-accepted', JSON.stringify(accepted))
     </script>
   </body>
 </html>

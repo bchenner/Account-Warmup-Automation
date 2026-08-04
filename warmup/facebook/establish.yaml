@@ -14,9 +14,10 @@
 # throughout. Sources put a Page's creation around day 6–7 and Business Manager
 # around week 2 — both are outside warmup and neither is done here.
 #
-# Note that friends start EARLIER here than in `standard` (session 8 vs 19) and
-# that is deliberate: a genuinely new account with no friends at all is the
-# anomaly, whereas an aged account already has a graph and is only adding to it.
+# NO FRIEND EDGES AT ALL, in either direction. Sending is out permanently and
+# has no step kind; accepting is switched off for now at every level. See
+# standard.yaml. The `accept_friend` capability is built and tested, so
+# re-enabling it means adding a step here.
 #
 # ⚠️ Practitioner consensus, no platform backing, and the most-cited Facebook
 # limit numbers trace back to a page last updated in 2020. Starting shape only.
@@ -62,14 +63,12 @@ sessions:
         count: [1, 3]
 
   - sessions: [8, 11]
-    label: First friend requests — an account with no friends is the anomaly
+    label: Likes settling into a rhythm
     steps:
       - action: feed_scroll
         seconds: [120, 300]
       - action: like
         count: [2, 5]
-      - action: friend_request
-        count: [1, 3]
       - action: watch_videos
         count: [3, 7]
 
@@ -95,9 +94,6 @@ sessions:
       - action: join_group
         count: [1, 1]
         skipChance: 0.45
-      - action: friend_request
-        count: [1, 3]
-        skipChance: 0.2
       - action: visit_profiles
         count: [1, 3]
         skipChance: 0.4
@@ -114,6 +110,3 @@ sessions:
       - action: comment
         count: [1, 2]
         skipChance: 0.5
-      - action: friend_request
-        count: [1, 2]
-        skipChance: 0.35
