@@ -21,6 +21,15 @@ type Json = Record<string, unknown>
 
 export type ProxyCreds = { username?: string | null; password?: string | null }
 
+/**
+ * Disables TLS session caching. A resumed session sends a DIFFERENT
+ * ClientHello — it carries a session ticket the full handshake does not — so
+ * its JA3 differs from a fresh one. Both legs of the TLS check must therefore
+ * do a full handshake, or the comparison measures resumption rather than the
+ * proxy. See checkTls.
+ */
+const NO_RESUME = { connect: { maxCachedSessions: 0 } } as const
+
 function proxyDispatcher(p: Pick<Proxy, 'host' | 'port'>, creds?: ProxyCreds): ProxyAgent {
   // HTTP CONNECT tunnelling — the proxy forwards encrypted bytes without
   // opening them, which is exactly what preserves the genuine ClientHello.
@@ -28,7 +37,13 @@ function proxyDispatcher(p: Pick<Proxy, 'host' | 'port'>, creds?: ProxyCreds): P
     creds?.username && creds.password
       ? `${encodeURIComponent(creds.username)}:${encodeURIComponent(creds.password)}@`
       : ''
-  return new ProxyAgent({ uri: `http://${auth}${p.host}:${p.port}` })
+  return new ProxyAgent({
+    uri: `http://${auth}${p.host}:${p.port}`,
+    // requestTls, not connect: `connect` configures the hop TO the proxy, which
+    // is plain HTTP here. The tunnelled TLS to the origin — the handshake whose
+    // fingerprint is being measured — is governed by requestTls.
+    requestTls: { maxCachedSessions: 0 }
+  })
 }
 
 async function getJson(url: string, dispatcher?: ProxyAgent | Agent): Promise<Json> {
@@ -60,22 +75,43 @@ export async function resolveEgressIp(
   p: Pick<Proxy, 'host' | 'port'>,
   creds?: ProxyCreds
 ): Promise<string> {
-  const info = await getJson(IPINFO_URL, proxyDispatcher(p, creds))
-  const ip = str(info.ip)
-  if (!ip) throw new Error('proxy responded but reported no egress IP')
-  return ip
+  // Runs before every launch, so the dispatcher is closed rather than left to
+  // accumulate sockets across a long-lived app session.
+  const dispatcher = proxyDispatcher(p, creds)
+  try {
+    const info = await getJson(IPINFO_URL, dispatcher)
+    const ip = str(info.ip)
+    if (!ip) throw new Error('proxy responded but reported no egress IP')
+    return ip
+  } finally {
+    await dispatcher.close().catch(() => undefined)
+  }
 }
 
 async function checkTls(p: Proxy, creds?: ProxyCreds): Promise<TlsCheck> {
   // Same client both times, so any difference in the reported fingerprint is
   // the proxy re-encrypting rather than tunnelling.
-  const read = async (dispatcher?: ProxyAgent): Promise<string | null> => {
-    const j = await getJson(TLS_URL, dispatcher)
-    const tls = j.tls as Json | undefined
-    return str(tls?.ja3_hash) ?? str(tls?.ja3) ?? null
+  //
+  // Both legs get a FRESH, non-resuming dispatcher that is closed afterwards.
+  // The direct leg used to fall through to undici's global agent, which pools
+  // connections and caches TLS sessions between calls: its first handshake was
+  // full and every later one resumed, so its JA3 changed after the first
+  // verification while the proxied leg — a new agent each time — never did.
+  // That made repeat verifications of a healthy proxy report MITM at random.
+  const read = async (dispatcher: Agent | ProxyAgent): Promise<string | null> => {
+    try {
+      const j = await getJson(TLS_URL, dispatcher)
+      const tls = j.tls as Json | undefined
+      return str(tls?.ja3_hash) ?? str(tls?.ja3) ?? null
+    } finally {
+      await dispatcher.close().catch(() => undefined)
+    }
   }
 
-  const [direct, proxied] = await Promise.allSettled([read(), read(proxyDispatcher(p, creds))])
+  const [direct, proxied] = await Promise.allSettled([
+    read(new Agent(NO_RESUME)),
+    read(proxyDispatcher(p, creds))
+  ])
   const directJa3 = direct.status === 'fulfilled' ? direct.value : null
   const proxiedJa3 = proxied.status === 'fulfilled' ? proxied.value : null
 
