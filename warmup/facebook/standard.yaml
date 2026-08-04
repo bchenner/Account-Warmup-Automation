@@ -1,0 +1,127 @@
+# LEVEL 3 — Standard. The full ramp for an AGED Facebook account.
+#
+# Longer than the Instagram equivalent (28 vs 21) for a specific reason: this
+# programme has to build a friend graph, and friends cannot be rushed. Meta's
+# published entity classifier weights WHO an account is connected to over how
+# fast it acts, so a plausible, gradually-acquired friend graph is the thing
+# actually being measured here — not the like count.
+#
+# Order of risk, and therefore order of appearance:
+#   like           invisible, reversible
+#   follow (Page)  unidirectional, needs nobody's consent
+#   join_group     a visible membership, but not tied to a person
+#   friend_request bidirectional, needs acceptance, and the unaccepted ones are
+#                  what get an account limited
+#   comment        public text under someone else's post
+#
+# Friend requests stay at 1–3 per session for the entire programme. They never
+# ramp. A warming account that suddenly sends ten is doing the one thing this
+# whole level exists to avoid.
+#
+# Nothing here touches the profile — an aged account already has one, and
+# rewriting it is the account-takeover signature. Use `establish` for accounts
+# you registered yourself.
+#
+# ⚠️ Every number is practitioner consensus with no platform backing. The one
+# figure with any weight behind it is a reported ~25/day ceiling on group and
+# Page joins with a two-week block behind it; nothing here goes near that.
+
+platform: facebook
+version: '2026.08-standard-a'
+length: 28
+
+rest:
+  count: [4, 6]
+  window: [5, 27]
+  minGap: 2
+
+sessions:
+  - sessions: [1, 5]
+    label: Consumption only — re-establishing a rhythm
+    steps:
+      - action: feed_scroll
+        seconds: [120, 300]
+      - action: watch_videos
+        count: [3, 8]
+      - action: search
+        skipChance: 0.4
+
+  - sessions: [6, 10]
+    label: Likes only
+    steps:
+      - action: story_views
+        count: [4, 10]
+        skipChance: 0.35
+      - action: feed_scroll
+        seconds: [150, 320]
+      - action: watch_videos
+        count: [4, 9]
+      - action: like
+        count: [1, 4]
+
+  - sessions: [11, 14]
+    label: Page follows — giving the feed something to show
+    steps:
+      - action: feed_scroll
+        seconds: [150, 320]
+      - action: watch_videos
+        count: [4, 9]
+      - action: like
+        count: [2, 5]
+      - action: search
+        skipChance: 0.3
+      - action: follow
+        count: [1, 3]
+
+  - sessions: [15, 18]
+    label: First groups — one at a time, never a batch
+    steps:
+      - action: feed_scroll
+        seconds: [150, 300]
+      - action: watch_videos
+        count: [3, 8]
+      - action: like
+        count: [2, 5]
+      - action: join_group
+        count: [1, 1]
+        skipChance: 0.5
+      - action: follow
+        count: [1, 2]
+        skipChance: 0.3
+
+  - sessions: [19, 24]
+    label: First friend requests — the slowest thing in the programme
+    steps:
+      - action: feed_scroll
+        seconds: [150, 320]
+      - action: watch_videos
+        count: [3, 8]
+      - action: like
+        count: [2, 6]
+      # Drawn from suggestions, which come from mutual connections, so they get
+      # accepted. Requests to strangers do not, and unaccepted requests are the
+      # thing being counted against the account.
+      - action: friend_request
+        count: [1, 3]
+      - action: visit_profiles
+        count: [1, 3]
+        skipChance: 0.4
+
+  - sessions: [25, 28]
+    label: Comments enter, friends continue at the same rate
+    steps:
+      - action: feed_scroll
+        seconds: [150, 300]
+      - action: watch_videos
+        count: [3, 8]
+      - action: like
+        count: [2, 6]
+      - action: comment
+        count: [1, 2]
+        skipChance: 0.45
+      - action: friend_request
+        count: [1, 3]
+        skipChance: 0.25
+      - action: join_group
+        count: [1, 1]
+        skipChance: 0.7

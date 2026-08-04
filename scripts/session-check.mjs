@@ -25,7 +25,7 @@ import { withPersonality } from '../src/shared/content.ts'
 import { NICHES } from '../src/shared/niches.ts'
 import { emojiHabitFor } from '../src/shared/emoji.ts'
 import { makeRng } from '../src/shared/human.ts'
-import { BACKGROUND_ARGS } from '../src/main/profiles.ts'
+import { BACKGROUND_ARGS } from '../src/shared/chrome-args.ts'
 
 const ROOT = path.resolve(import.meta.dirname, '..')
 const selectors = SelectorSetSchema.parse(

@@ -67,6 +67,8 @@ export async function runWarmupSession(args: {
   /** Handles belonging to the fleet, so its own accounts are never followed. */
   managedHandles: ReadonlySet<string>
   followedTargets: Set<string>
+  friendedTargets: Set<string>
+  joinedGroups: Set<string>
   usedComments: string[]
   usedSources: Set<string>
   claimedPosts: Set<string>
@@ -178,6 +180,8 @@ export async function runWarmupSession(args: {
       usedSources: args.usedSources,
       claimedPosts: args.claimedPosts,
       followedTargets: args.followedTargets,
+      friendedTargets: args.friendedTargets,
+      joinedGroups: args.joinedGroups,
       managedHandles: args.managedHandles,
       profileValues: {
         username: account.username ?? '',

@@ -13,7 +13,12 @@
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "test": "vitest run",
-    "package": "electron-builder"
+    "package": "electron-builder",
+    "check:session": "node --import ./scripts/alias-register.mjs scripts/session-check.mjs",
+    "check:facebook": "node --import ./scripts/alias-register.mjs scripts/facebook-check.mjs",
+    "check:levels": "node scripts/levels-check.mjs",
+    "check:timezone": "node scripts/timezone-sync-check.mjs",
+    "check:tabrestore": "node scripts/tabrestore-check.mjs"
   },
   "dependencies": {
     "patchright": "^1.61.1",

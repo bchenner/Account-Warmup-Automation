@@ -13,12 +13,14 @@ import {
 } from './session'
 import { makeRng } from './human'
 
-const load = (level: string): Script =>
+const load = (level: string, platform = 'instagram'): Script =>
   ScriptSchema.parse(
-    parse(readFileSync(join(process.cwd(), `warmup/instagram/${level}.yaml`), 'utf8'))
+    parse(readFileSync(join(process.cwd(), `warmup/${platform}/${level}.yaml`), 'utf8'))
   )
 
 const script = load('establish')
+const PLATFORMS = ['instagram', 'facebook']
+const ALL_LEVELS = ['observe', 'light', 'standard', 'establish']
 
 /**
  * A level is a CEILING, not a suggestion. If `observe` is defined as "no
@@ -27,78 +29,129 @@ const script = load('establish')
  * something — without them the difference between levels is a comment.
  */
 describe('engagement levels are ceilings', () => {
-  const actionsIn = (level: string): Set<string> =>
-    new Set(planSessions(load(level), 'maya-instagram').flatMap((s) => s.steps.map((t) => t.action)))
-
-  const WRITES = ['like', 'follow', 'comment', 'profile_mutation']
-
-  it('observe never writes at all', () => {
-    const actions = actionsIn('observe')
-    for (const w of WRITES) expect([...actions], `observe contains ${w}`).not.toContain(w)
-  })
-
-  it('light likes, but never follows, comments or edits the profile', () => {
-    const actions = actionsIn('light')
-    expect([...actions]).toContain('like')
-    for (const w of ['follow', 'comment', 'profile_mutation']) {
-      expect([...actions], `light contains ${w}`).not.toContain(w)
-    }
-  })
-
-  it('standard does everything except touch the profile', () => {
-    const actions = actionsIn('standard')
-    for (const w of ['like', 'follow', 'comment']) expect([...actions]).toContain(w)
-    // The whole reason this level exists: an aged account already HAS a
-    // username, bio and avatar, and rewriting them reads as a stolen account.
-    expect([...actions], 'standard must never mutate an aged profile').not.toContain(
-      'profile_mutation'
+  const actionsIn = (level: string, platform: string): Set<string> =>
+    new Set(
+      planSessions(load(level, platform), 'maya-x').flatMap((s) => s.steps.map((t) => t.action))
     )
-  })
 
-  it('establish is the only level that builds a profile', () => {
-    expect([...actionsIn('establish')]).toContain('profile_mutation')
-  })
+  // Every write the runner can perform. A level that disallows one must not
+  // contain it AT ALL — a rare action still happens, so a ceiling expressed as
+  // a low skipChance is not a ceiling.
+  const WRITES = ['like', 'follow', 'comment', 'profile_mutation', 'friend_request', 'join_group']
 
-  const firstOf = (level: string, action: string): number =>
-    planSessions(load(level), 'maya-instagram').findIndex((s) =>
+  for (const platform of PLATFORMS) {
+    describe(platform, () => {
+      it('observe never writes at all', () => {
+        const actions = actionsIn('observe', platform)
+        for (const w of WRITES) expect([...actions], `observe contains ${w}`).not.toContain(w)
+      })
+
+      it('light never sends friend requests, joins groups, comments or edits the profile', () => {
+        const actions = actionsIn('light', platform)
+        expect([...actions]).toContain('like')
+        for (const w of ['comment', 'profile_mutation', 'friend_request', 'join_group']) {
+          expect([...actions], `light contains ${w}`).not.toContain(w)
+        }
+      })
+
+      it('standard does everything except touch the profile', () => {
+        const actions = actionsIn('standard', platform)
+        for (const w of ['like', 'follow', 'comment']) expect([...actions], w).toContain(w)
+        // The whole reason this level exists: an aged account already HAS a
+        // name, bio and avatar, and rewriting them reads as a stolen account.
+        expect([...actions], 'standard must never mutate an aged profile').not.toContain(
+          'profile_mutation'
+        )
+      })
+
+      it('establish is the only level that builds a profile', () => {
+        expect([...actionsIn('establish', platform)]).toContain('profile_mutation')
+      })
+
+      it('every level is loadable, declares its platform, and covers its sessions', () => {
+        for (const level of ALL_LEVELS) {
+          const s = load(level, platform)
+          expect(s.platform, `${platform}/${level}`).toBe(platform)
+          const plan = planSessions(s, 'maya-x')
+          expect(plan, `${platform}/${level}`).toHaveLength(s.length)
+          for (const session of plan) {
+            expect(session.steps.length, `${platform}/${level} #${session.index}`).toBeGreaterThan(0)
+          }
+        }
+      })
+    })
+  }
+
+  const firstOf = (level: string, action: string, platform = 'instagram'): number =>
+    planSessions(load(level, platform), 'maya-x').findIndex((s) =>
       s.steps.some((t) => t.action === action)
     )
 
   it('comments are the last write to appear, at every level that has them', () => {
-    for (const level of ['light', 'standard', 'establish']) {
-      const comment = firstOf(level, 'comment')
-      if (comment < 0) continue // the level never comments, which is allowed
-      for (const earlier of ['like', 'follow']) {
-        const at = firstOf(level, earlier)
-        if (at >= 0) expect(at, `${level}: ${earlier} before comment`).toBeLessThan(comment)
+    for (const platform of PLATFORMS) {
+      for (const level of ['light', 'standard', 'establish']) {
+        const comment = firstOf(level, 'comment', platform)
+        if (comment < 0) continue // the level never comments, which is allowed
+        for (const earlier of ['like', 'follow', 'friend_request']) {
+          const at = firstOf(level, earlier, platform)
+          if (at >= 0) {
+            expect(at, `${platform}/${level}: ${earlier} before comment`).toBeLessThan(comment)
+          }
+        }
       }
     }
   })
 
   it('likes precede follows on an account that already has a feed', () => {
     // But NOT on `establish`. A brand-new account's feed is empty, so it has
-    // to follow someone before there is anything to like — following first is
-    // the only order that produces a feed at all. On an aged account the feed
-    // already exists, so the cheaper action comes first.
-    for (const level of ['light', 'standard']) {
-      const like = firstOf(level, 'like')
-      const follow = firstOf(level, 'follow')
-      if (like >= 0 && follow >= 0) {
-        expect(like, `${level}: like before follow`).toBeLessThan(follow)
+    // to follow someone before there is anything to like. On an aged account
+    // the feed already exists, so the cheaper action comes first.
+    for (const platform of PLATFORMS) {
+      for (const level of ['light', 'standard']) {
+        const like = firstOf(level, 'like', platform)
+        const follow = firstOf(level, 'follow', platform)
+        if (like >= 0 && follow >= 0) {
+          expect(like, `${platform}/${level}: like before follow`).toBeLessThan(follow)
+        }
       }
     }
     expect(firstOf('establish', 'follow')).toBeLessThan(firstOf('establish', 'like'))
   })
 
-  it('every level is loadable and covers all of its sessions', () => {
-    for (const level of ['observe', 'light', 'standard', 'establish']) {
-      const s = load(level)
-      expect(s.platform, level).toBe('instagram')
-      const plan = planSessions(s, 'maya-instagram')
-      expect(plan, level).toHaveLength(s.length)
-      for (const session of plan) {
-        expect(session.steps.length, `${level} session ${session.index}`).toBeGreaterThan(0)
+  it('Facebook asks nobody for consent before it has earned the right to', () => {
+    // A friend request is bidirectional and the UNACCEPTED ones are what get an
+    // account limited, so it must come after the actions that need no consent.
+    for (const level of ['standard', 'establish']) {
+      const friend = firstOf(level, 'friend_request', 'facebook')
+      expect(friend, `${level} must send friend requests`).toBeGreaterThanOrEqual(0)
+      for (const cheaper of ['like', 'follow']) {
+        const at = firstOf(level, cheaper, 'facebook')
+        expect(at, `facebook/${level}: ${cheaper} before friend_request`).toBeLessThan(friend)
       }
+    }
+  })
+
+  it('Facebook friend requests never ramp', () => {
+    // Everything else in a programme grows. This one must not: a warming
+    // account that suddenly sends ten requests is doing the single thing the
+    // level exists to avoid.
+    for (const level of ['standard', 'establish']) {
+      const counts = planSessions(load(level, 'facebook'), 'maya-x')
+        .flatMap((s) => s.steps)
+        .filter((t) => t.action === 'friend_request')
+        .map((t) => t.count?.[1] ?? 0)
+      expect(counts.length, level).toBeGreaterThan(0)
+      for (const c of counts) expect(c, `${level}: ${c} friend requests in one session`).toBeLessThanOrEqual(3)
+    }
+  })
+
+  it('group joins stay far below the reported daily ceiling', () => {
+    for (const level of ALL_LEVELS) {
+      const counts = planSessions(load(level, 'facebook'), 'maya-x')
+        .flatMap((s) => s.steps)
+        .filter((t) => t.action === 'join_group')
+        .map((t) => t.count?.[1] ?? 0)
+      for (const c of counts) expect(c, `${level}: ${c} groups in one session`).toBeLessThanOrEqual(2)
     }
   })
 })

@@ -43,12 +43,17 @@ import type { SelectorSet } from '@shared/selectors'
  */
 
 export class SelectorMiss extends Error {
-  constructor(
-    readonly selector: string,
-    readonly step: string
-  ) {
+  // Written as plain fields rather than constructor parameter properties:
+  // the verification harnesses import this module through Node's strip-only
+  // TypeScript support, which cannot transform parameter properties.
+  readonly selector: string
+  readonly step: string
+
+  constructor(selector: string, step: string) {
     super(`selector not found during "${step}": ${selector}`)
     this.name = 'SelectorMiss'
+    this.selector = selector
+    this.step = step
   }
 }
 
@@ -75,6 +80,18 @@ export type RunnerContext = {
   followedTargets: Set<string>
   /** Handles belonging to the fleet itself — never follow our own accounts. */
   managedHandles: ReadonlySet<string>
+  /**
+   * People any account in the fleet has already sent a friend request to, and
+   * groups it has already joined.
+   *
+   * This matters more on Facebook than the follow graph does on Instagram. A
+   * shared friend between two of your own accounts is a mutual connection
+   * Meta can see from both ends, and a cluster of accounts converging on the
+   * same people or the same groups is the shape its classifier is built to
+   * find. Keeping these disjoint is the whole point of tracking them fleet-wide.
+   */
+  friendedTargets: Set<string>
+  joinedGroups: Set<string>
   /** Values written when a profile_mutation step runs, keyed by field. */
   profileValues?: Record<string, string>
   /**
@@ -143,10 +160,27 @@ async function readItems(page: Page, sel: SelectorSet): Promise<Item[]> {
             comments.push((found[i].textContent || '').trim())
           }
         }
+        // A post's identity has to survive the next session, because the
+        // registry uses it to stop two accounts commenting on the same post.
+        // Facebook exposes no stable id on an article, so falling back to the
+        // position would make "idx-0" a permanent fleet-wide identity that
+        // every account claims once and then blocks for all the others.
+        // Deriving it from the content instead identifies the post by what it
+        // is, which is what the registry actually means.
+        const author = n.getAttribute(s.authorAttribute) || ''
+        const declaredId = n.getAttribute(s.postIdAttribute)
+        let derived = ''
+        if (!declaredId) {
+          const basis = (author + '|' + caption).slice(0, 240)
+          let h = 5381
+          for (let i = 0; i < basis.length; i++) h = ((h * 33) ^ basis.charCodeAt(i)) >>> 0
+          derived = basis.trim() ? 'c-' + h.toString(36) : 'idx-' + index
+        }
+
         return {
           index,
-          postId: n.getAttribute(s.postIdAttribute) || 'idx-' + index,
-          author: n.getAttribute(s.authorAttribute) || '',
+          postId: declaredId || derived,
+          author,
           caption,
           hashtags: (rawTags.match(/#[\w]+/g) || []).map((t: string) => t.slice(1)),
           hasVideo: s.video ? !!n.querySelector(s.video) : false,
@@ -496,6 +530,121 @@ async function runStep(page: Page, step: Step, env: StepEnv): Promise<StepReport
         seen: items.length,
         engaged: followed,
         detail: `followed ${followed}${skipped ? `, skipped ${skipped} already in the fleet graph` : ''}`
+      }
+    }
+
+    case 'friend_request': {
+      const people = sel.people
+      if (!people) throw new SelectorMiss('people', 'friend_request')
+      const want = countFor(step.count ?? [2, 4], mood, rng)
+
+      await page.goto(people.url, { waitUntil: 'domcontentloaded' })
+      await sleep(uniform(1500, 4000, rng) * traits.tempo)
+
+      const cards = page.locator(people.card)
+      const total = await cards.count()
+      if (total === 0) throw new SelectorMiss('people.card', 'friend_request')
+
+      // Read identities up front: sending a request re-renders the list, so
+      // indices taken during the loop drift.
+      const ids: string[] = []
+      for (let i = 0; i < total; i++) {
+        const id =
+          (await cards.nth(i).getAttribute(people.idAttribute)) ??
+          (people.name ? await cards.nth(i).locator(people.name).textContent() : null)
+        ids.push((id ?? '').trim())
+      }
+
+      let sent = 0
+      let skipped = 0
+      for (const index of shuffle([...ids.keys()], rng)) {
+        if (sent >= want) break
+        const id = ids[index]
+        if (!id) continue
+        // Never friend our own accounts, and never someone the fleet already
+        // holds. On Facebook a shared friend is a visible mutual connection
+        // between two accounts that are supposed to be strangers.
+        if (ctx.managedHandles.has(id) || ctx.friendedTargets.has(id)) {
+          skipped++
+          continue
+        }
+
+        const card = cards.nth(index)
+        const button = card.locator(people.addButton)
+        if ((await button.count()) === 0) continue
+
+        // Look at who this is before adding them, the way a person would.
+        await sleep(dwellMs(traits, mood, rng))
+        await button.first().click({ timeout: 10_000 })
+        ctx.friendedTargets.add(id)
+        sent++
+        // The most rate-sensitive action on the platform: unaccepted requests
+        // are what "adding friends too fast" is actually measuring, so these
+        // gaps are deliberately wider than a follow's.
+        await sleep(uniform(8000, 25_000, rng) * traits.tempo * mood)
+      }
+
+      return {
+        action: step.action,
+        seen: total,
+        engaged: sent,
+        detail: `sent ${sent} friend request${sent === 1 ? '' : 's'}${
+          skipped ? `, skipped ${skipped} already in the fleet graph` : ''
+        }`
+      }
+    }
+
+    case 'join_group': {
+      const groups = sel.groups
+      if (!groups) throw new SelectorMiss('groups', 'join_group')
+      // Deliberately tiny. Practitioner reporting puts a group/page join ceiling
+      // around 25/day with a two-week block behind it, and there is no reason
+      // for a warming account to go anywhere near that.
+      const want = countFor(step.count ?? [1, 2], mood, rng)
+
+      await page.goto(groups.url, { waitUntil: 'domcontentloaded' })
+      await sleep(uniform(1500, 4000, rng) * traits.tempo)
+
+      const cards = page.locator(groups.card)
+      const total = await cards.count()
+      if (total === 0) throw new SelectorMiss('groups.card', 'join_group')
+
+      const ids: string[] = []
+      for (let i = 0; i < total; i++) {
+        const id =
+          (await cards.nth(i).getAttribute(groups.idAttribute)) ??
+          (groups.name ? await cards.nth(i).locator(groups.name).textContent() : null)
+        ids.push((id ?? '').trim())
+      }
+
+      let joined = 0
+      let skipped = 0
+      for (const index of shuffle([...ids.keys()], rng)) {
+        if (joined >= want) break
+        const id = ids[index]
+        if (!id) continue
+        // Two of your accounts in the same niche group is a co-membership Meta
+        // can see directly.
+        if (ctx.joinedGroups.has(id)) {
+          skipped++
+          continue
+        }
+
+        const button = cards.nth(index).locator(groups.joinButton)
+        if ((await button.count()) === 0) continue
+
+        await sleep(dwellMs(traits, mood, rng))
+        await button.first().click({ timeout: 10_000 })
+        ctx.joinedGroups.add(id)
+        joined++
+        await sleep(uniform(10_000, 30_000, rng) * traits.tempo * mood)
+      }
+
+      return {
+        action: step.action,
+        seen: total,
+        engaged: joined,
+        detail: `joined ${joined}${skipped ? `, skipped ${skipped} the fleet is already in` : ''}`
       }
     }
 

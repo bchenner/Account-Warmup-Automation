@@ -1,0 +1,51 @@
+<!doctype html>
+<!--
+  A fake group-discovery surface, for proving join_group works. Includes a
+  group the fleet is already in: two of your own accounts in the same niche
+  group is a co-membership anyone can enumerate from either side.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>fixture groups</title>
+    <style>
+      body { font: 15px/1.5 system-ui; margin: 0; background: #111; color: #eee; padding: 16px; }
+      [role='listitem'] { border: 1px solid #262626; border-radius: 10px; padding: 12px; margin-bottom: 10px; max-width: 520px; }
+      button { background: #1c1c1c; border: 1px solid #333; color: #eee; border-radius: 8px; padding: 4px 10px; cursor: pointer; }
+      button[data-joined='1'] { background: #1f4f2f; border-color: #3a3; }
+    </style>
+  </head>
+  <body>
+    <h3>Discover groups</h3>
+    <div id="list"></div>
+    <script>
+      const GROUPS = [
+        { id: 'group-1', name: 'Home Workout Ideas' },
+        { id: 'group-2', name: 'Beginner Strength Training' },
+        { id: 'group-3', name: 'Kettlebell Club' },
+        { id: 'group-4', name: 'Meal Prep for Athletes' }
+      ]
+      document.getElementById('list').innerHTML = GROUPS.map(
+        (g) => `
+        <div role="listitem" data-group-id="${g.id}">
+          <a role="link" href="#${g.id}"><span>${g.name}</span></a>
+          <div style="margin-top:8px">
+            <button role="button" aria-label="Join ${g.name}">Join group</button>
+          </div>
+        </div>`
+      ).join('')
+
+      const joined = []
+      document.querySelectorAll('button[aria-label^="Join"]').forEach((b) => {
+        b.addEventListener('click', (e) => {
+          const card = e.target.closest('[data-group-id]')
+          joined.push(card.dataset.groupId)
+          e.target.dataset.joined = '1'
+          e.target.textContent = 'Joined'
+          document.body.setAttribute('data-joined', JSON.stringify(joined))
+        })
+      })
+      document.body.setAttribute('data-joined', JSON.stringify(joined))
+    </script>
+  </body>
+</html>

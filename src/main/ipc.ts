@@ -405,6 +405,8 @@ export function registerIpc(): void {
 
       const registry = await loadRegistry()
       const followedTargets = new Set(registry.followedTargets)
+      const friendedTargets = new Set(registry.friendedTargets)
+      const joinedGroups = new Set(registry.joinedGroups)
       const usedSources = new Set(registry.usedSourceFingerprints)
       const claimedPosts = new Set(registry.claimedPosts)
       const usedComments = [...registry.usedComments]
@@ -415,6 +417,8 @@ export function registerIpc(): void {
         account,
         managedHandles: await managedHandles(),
         followedTargets,
+        friendedTargets,
+        joinedGroups,
         usedComments,
         usedSources,
         claimedPosts
@@ -424,6 +428,8 @@ export function registerIpc(): void {
       // session finished — a follow that landed is in the graph regardless.
       await saveRegistry({
         followedTargets: [...followedTargets],
+        friendedTargets: [...friendedTargets],
+        joinedGroups: [...joinedGroups],
         usedComments,
         usedSourceFingerprints: [...usedSources],
         claimedPosts: [...claimedPosts]

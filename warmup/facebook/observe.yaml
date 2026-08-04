@@ -1,0 +1,44 @@
+# LEVEL 1 — Observe. Consumption only, no writes of any kind.
+#
+# For a Facebook account that must not act yet: one just signed in after a long
+# dormancy, one that hit a login checkpoint, or one whose posts stopped being
+# distributed. Reading the feed and watching Reels creates no public artifact,
+# no friend edge, and no group membership.
+#
+# On Facebook the absent actions matter more than on Instagram. A friend
+# request is bidirectional and visible from both ends, and a group join is a
+# membership anyone can enumerate — neither can be quietly undone, so an
+# account under scrutiny does neither.
+#
+# When this finishes, move the account to `light` — it does not loop.
+
+platform: facebook
+version: '2026.08-observe-a'
+length: 14
+
+rest:
+  count: [2, 3]
+  window: [4, 13]
+  minGap: 2
+
+sessions:
+  - sessions: [1, 4]
+    label: Short passive sessions — just looking
+    steps:
+      - action: feed_scroll
+        seconds: [90, 200]
+      - action: watch_videos
+        count: [2, 5]
+
+  - sessions: [5, 14]
+    label: Settling in — longer passive sessions
+    steps:
+      - action: story_views
+        count: [4, 10]
+        skipChance: 0.35
+      - action: feed_scroll
+        seconds: [150, 340]
+      - action: watch_videos
+        count: [3, 8]
+      - action: search
+        skipChance: 0.45

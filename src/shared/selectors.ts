@@ -67,13 +67,48 @@ export const SearchSelectorsSchema = z.object({
   results: z.string().optional()
 })
 
+/**
+ * People suggestions — Facebook's friend surface.
+ *
+ * A friend request is not a follow. It is bidirectional and needs the other
+ * person to accept, so a pile of pending requests nobody answered is itself
+ * the signal that gets an account limited. That makes the SOURCE matter:
+ * suggestions ("People you may know") are drawn from mutual connections and
+ * get accepted; strangers from search do not.
+ */
+export const PeopleSelectorsSchema = z.object({
+  /** Where suggestions live, e.g. the friends page. */
+  url: z.string(),
+  /** One suggestion card. */
+  card: z.string(),
+  /** The "Add friend" control, within a card. */
+  addButton: z.string(),
+  /** Name shown on the card, used to keep the fleet's graphs disjoint. */
+  name: z.string().optional(),
+  /** Attribute on `card` holding a stable identifier for that person. */
+  idAttribute: z.string().default('data-person-id'),
+  /** Optional: mutual-friend text, the best available proxy for plausibility. */
+  mutuals: z.string().optional()
+})
+
+/** Groups — a Facebook surface with no Instagram equivalent. */
+export const GroupSelectorsSchema = z.object({
+  url: z.string(),
+  card: z.string(),
+  joinButton: z.string(),
+  name: z.string().optional(),
+  idAttribute: z.string().default('data-group-id')
+})
+
 export const SelectorSetSchema = z.object({
   platform: z.string(),
   version: z.string(),
   feed: FeedSelectorsSchema,
   search: SearchSelectorsSchema.optional(),
   stories: StorySelectorsSchema.optional(),
-  profileEdit: ProfileEditSelectorsSchema.optional()
+  profileEdit: ProfileEditSelectorsSchema.optional(),
+  people: PeopleSelectorsSchema.optional(),
+  groups: GroupSelectorsSchema.optional()
 })
 
 export type SelectorSet = z.infer<typeof SelectorSetSchema>

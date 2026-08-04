@@ -59,52 +59,59 @@ try {
   )
   check('the niche survives as a valid key', created.personaSlug === 'levelcheck')
 
-  await call(
-    (id) =>
-      window.boiler.addAccount({ personaSlug: 'levelcheck', profileId: id, platform: 'instagram' }),
-    created.id,
-    'addAccount'
-  )
-  await call(
-    (id) =>
-      window.boiler.updateAccount('levelcheck', id, 'instagram', {
-        username: 'levelcheck',
-        registered: true
-      }),
-    created.id,
-    'register'
-  )
+  for (const platform of ['instagram', 'facebook']) {
+    await call(
+      ([id, p]) => window.boiler.addAccount({ personaSlug: 'levelcheck', profileId: id, platform: p }),
+      [created.id, platform],
+      `addAccount ${platform}`
+    )
+    await call(
+      ([id, p]) =>
+        window.boiler.updateAccount('levelcheck', id, p, {
+          username: 'levelcheck',
+          registered: true
+        }),
+      [created.id, platform],
+      `register ${platform}`
+    )
+  }
 
+  let PLATFORM = 'instagram'
   const planFor = async () =>
-    call((id) => window.boiler.sessionPlan('levelcheck', id, 'instagram'), created.id, 'sessionPlan')
+    call(
+      ([id, p]) => window.boiler.sessionPlan('levelcheck', id, p),
+      [created.id, PLATFORM],
+      'sessionPlan'
+    )
 
   // A newly added account must land on the most cautious level, not the one
   // that would edit an aged account's profile.
   const first = await planFor()
   check('a new account defaults to observe', first.level === 'observe', JSON.stringify(first.level))
 
-  const seen = {}
-  for (const level of ['observe', 'light', 'standard', 'establish']) {
-    await call(
-      ([id, l]) => window.boiler.updateAccount('levelcheck', id, 'instagram', { level: l }),
-      [created.id, level],
-      `setLevel ${level}`
-    )
-    const plan = await planFor()
-    seen[level] = { total: plan.total, next: plan.next, label: plan.label }
+  for (const platform of ['instagram', 'facebook']) {
+    PLATFORM = platform
+    const seen = {}
+    for (const level of ['observe', 'light', 'standard', 'establish']) {
+      await call(
+        ([id, l, p]) => window.boiler.updateAccount('levelcheck', id, p, { level: l }),
+        [created.id, level, platform],
+        `setLevel ${platform}/${level}`
+      )
+      const plan = await planFor()
+      seen[level] = plan.total
+      check(
+        `${platform}/${level}: reports its level and restarts at session 1`,
+        plan.level === level && plan.next === 1,
+        `next=${plan.next} total=${plan.total} — ${plan.label}`
+      )
+    }
     check(
-      `${level}: plan reports that level and restarts at session 1`,
-      plan.level === level && plan.next === 1,
-      `level=${plan.level} next=${plan.next} total=${plan.total} — ${plan.label}`
+      `${platform}: the levels are genuinely different programmes`,
+      new Set(Object.values(seen)).size > 1,
+      `session counts: ${JSON.stringify(seen)}`
     )
   }
-
-  const lengths = Object.values(seen).map((s) => s.total)
-  check(
-    'the levels are genuinely different programmes',
-    new Set(lengths).size > 1,
-    `lengths: ${JSON.stringify(seen, null, 0)}`
-  )
 } finally {
   if (created) {
     let removed = false

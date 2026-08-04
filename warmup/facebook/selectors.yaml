@@ -1,0 +1,73 @@
+# Facebook selectors.
+#
+# ⚠️ UNVERIFIED against the live site. Written ARIA-first from Facebook's
+# documented accessible names and NOT yet run against a real account. Meta
+# ships obfuscated, build-hashed class names that change weekly, so expect the
+# first real session to abort naming one of these. That is the design working:
+# a miss aborts loudly rather than guessing, and the fix is an edit to this
+# file, not a code change.
+#
+# Facebook differs from Instagram in ways that matter here:
+#   - Posts are role="article" with NO stable id attribute, so postIdAttribute
+#     finds nothing and the runner derives an id from author + caption instead.
+#   - The comment box is a contenteditable div, not a textarea. The runner
+#     clicks it and types with the keyboard, which works on both.
+#   - Friends and Groups have no Instagram equivalent and get their own
+#     sections below.
+platform: facebook
+version: '2026.08-draft'
+
+feed:
+  url: https://www.facebook.com/
+  post: 'div[role="article"]'
+  # Facebook marks the post body for its own ad-preview tooling; this has been
+  # the most stable hook available, but it is exactly the kind of thing that
+  # moves.
+  caption: '[data-ad-preview="message"], [data-ad-comet-preview="message"]'
+  video: 'video'
+  translationPrompt: 'text=See translation'
+  likeButton: 'div[role="button"][aria-label="Like"]'
+  commentInput: 'div[role="textbox"][aria-label^="Write a comment"]'
+  # Comment bodies sit in their own articles nested inside the post.
+  commentText: 'div[role="article"] div[dir="auto"]'
+  authorLink: 'h3 a[role="link"], strong a[role="link"]'
+  # Neither of these exists on a Facebook article. Left as the schema defaults
+  # so the intent is visible: the runner falls back to a content-derived id,
+  # and the author is read from the profile link rather than an attribute.
+  postIdAttribute: 'data-post-id'
+  authorAttribute: 'data-author'
+
+search:
+  url: https://www.facebook.com/search/top/
+  input: 'input[aria-label="Search Facebook"]'
+
+stories:
+  trayItem: 'div[aria-label^="Story by"]'
+  next: 'div[role="button"][aria-label="Next card"]'
+  close: 'div[role="button"][aria-label="Close"]'
+
+# The friend graph. On Facebook this is the signal Meta's own published entity
+# classifier weights most heavily — suggestions come from mutual connections
+# and get accepted, whereas strangers from search do not, and it is the
+# unaccepted requests that get an account limited.
+people:
+  url: https://www.facebook.com/friends/suggestions
+  card: 'div[role="listitem"]'
+  addButton: 'div[role="button"][aria-label^="Add friend"]'
+  name: 'a[role="link"] span'
+  idAttribute: 'data-person-id'
+  mutuals: 'text=/mutual friend/'
+
+groups:
+  url: https://www.facebook.com/groups/discover/
+  card: 'div[role="listitem"]'
+  joinButton: 'div[role="button"][aria-label^="Join"]'
+  name: 'a[role="link"] span'
+  idAttribute: 'data-group-id'
+
+profileEdit:
+  url: https://www.facebook.com/me/about
+  save: 'div[role="button"][aria-label="Save"]'
+  fields:
+    bio: 'div[role="textbox"][aria-label^="Describe who you are"]'
+    display_name: 'input[aria-label="First name"]'

@@ -1,0 +1,60 @@
+# LEVEL 2 — Light. Consumption plus likes and Page follows. No friends yet.
+#
+# Following a Page is unidirectional and needs nobody's consent, which makes it
+# the cheapest way to give an account a feed worth reading. A FRIEND request is
+# a different thing entirely — it asks a person to accept, and a pile of
+# unanswered requests is what "adding friends too fast" actually measures. That
+# is level 3.
+#
+# Deliberately absent:
+#   - friend_request  — needs acceptance; the account is not ready to be judged
+#   - join_group      — a visible, enumerable membership
+#   - comment         — public text
+#   - profile_mutation — never on an aged account, at any level
+
+platform: facebook
+version: '2026.08-light-a'
+length: 14
+
+rest:
+  count: [2, 3]
+  window: [4, 13]
+  minGap: 2
+
+sessions:
+  - sessions: [1, 5]
+    label: Consumption only
+    steps:
+      - action: feed_scroll
+        seconds: [120, 300]
+      - action: watch_videos
+        count: [3, 8]
+      - action: search
+        skipChance: 0.4
+
+  - sessions: [6, 10]
+    label: First likes
+    steps:
+      - action: story_views
+        count: [4, 10]
+        skipChance: 0.35
+      - action: feed_scroll
+        seconds: [150, 320]
+      - action: watch_videos
+        count: [4, 9]
+      - action: like
+        count: [1, 4]
+
+  - sessions: [11, 14]
+    label: A few Page follows — building something worth reading
+    steps:
+      - action: feed_scroll
+        seconds: [150, 320]
+      - action: watch_videos
+        count: [4, 9]
+      - action: like
+        count: [2, 5]
+      - action: search
+        skipChance: 0.3
+      - action: follow
+        count: [1, 3]

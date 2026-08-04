@@ -24,6 +24,12 @@ export const STEP_KINDS = [
   'like',
   'comment',
   'profile_mutation',
+  // Facebook-only. Instagram has no equivalent of either, and Facebook warmup
+  // without them optimises the wrong variable: Meta's own published entity
+  // classifier weights WHO an account is connected to over how fast it acts,
+  // and on Facebook that means the friend graph, not follows.
+  'friend_request',
+  'join_group',
   'idle'
 ] as const
 export type StepKind = (typeof STEP_KINDS)[number]

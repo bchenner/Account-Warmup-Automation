@@ -127,6 +127,14 @@ export function decryptSecret(enc: string | null): string | null {
  */
 export type Registry = {
   followedTargets: string[]
+  /**
+   * Facebook's friend graph and group memberships, kept disjoint across the
+   * fleet for the same reason as the follow graph — but it matters more here.
+   * A shared friend is a mutual connection visible from both accounts, and
+   * co-membership of a niche group is visible directly.
+   */
+  friendedTargets: string[]
+  joinedGroups: string[]
   usedComments: string[]
   usedSourceFingerprints: string[]
   claimedPosts: string[]
@@ -134,6 +142,8 @@ export type Registry = {
 
 const EMPTY: Registry = {
   followedTargets: [],
+  friendedTargets: [],
+  joinedGroups: [],
   usedComments: [],
   usedSourceFingerprints: [],
   claimedPosts: []
@@ -147,6 +157,8 @@ export async function loadRegistry(): Promise<Registry> {
   const parsed = (parse(await readFile(path, 'utf8')) ?? {}) as Partial<Registry>
   return {
     followedTargets: parsed.followedTargets ?? [],
+    friendedTargets: parsed.friendedTargets ?? [],
+    joinedGroups: parsed.joinedGroups ?? [],
     usedComments: parsed.usedComments ?? [],
     usedSourceFingerprints: parsed.usedSourceFingerprints ?? [],
     claimedPosts: parsed.claimedPosts ?? []

@@ -1,0 +1,119 @@
+# LEVEL 4 — Establish. For an account YOU registered, on the IP it will live on.
+#
+# The only Facebook programme that mutates the profile, because it is the only
+# one whose account arrives without one.
+#
+# Do NOT run this on an aged or purchased account. It already has a name, bio
+# and photo, and rewriting them on an account that has just reappeared from a
+# new country is the strongest account-takeover signal there is. Use `standard`.
+#
+# The shape follows the practitioner Facebook schedule more closely than the
+# Instagram one does, because Facebook's is more specific and more consistent
+# across sources: short daily sessions, profile filled in gradually, a handful
+# of Page follows early, groups around day 4, friends accumulating slowly
+# throughout. Sources put a Page's creation around day 6–7 and Business Manager
+# around week 2 — both are outside warmup and neither is done here.
+#
+# Note that friends start EARLIER here than in `standard` (session 8 vs 19) and
+# that is deliberate: a genuinely new account with no friends at all is the
+# anomaly, whereas an aged account already has a graph and is only adding to it.
+#
+# ⚠️ Practitioner consensus, no platform backing, and the most-cited Facebook
+# limit numbers trace back to a page last updated in 2020. Starting shape only.
+
+platform: facebook
+version: '2026.08-establish-a'
+length: 21
+
+rest:
+  count: [3, 4]
+  window: [6, 20]
+  minGap: 2
+
+sessions:
+  - sessions: [1, 3]
+    label: Consumption only — no engagement of any kind
+    steps:
+      - action: feed_scroll
+        seconds: [120, 280]
+      - action: watch_videos
+        count: [2, 6]
+      - action: search
+        skipChance: 0.4
+
+  - sessions: [4, 4]
+    label: Set display name
+    steps:
+      - action: profile_mutation
+        field: display_name
+      - action: feed_scroll
+        seconds: [90, 220]
+
+  - sessions: [5, 7]
+    label: First Page follows and likes
+    steps:
+      - action: feed_scroll
+        seconds: [120, 300]
+      - action: watch_videos
+        count: [3, 8]
+      - action: like
+        count: [1, 4]
+      - action: follow
+        count: [1, 3]
+
+  - sessions: [8, 11]
+    label: First friend requests — an account with no friends is the anomaly
+    steps:
+      - action: feed_scroll
+        seconds: [120, 300]
+      - action: like
+        count: [2, 5]
+      - action: friend_request
+        count: [1, 3]
+      - action: watch_videos
+        count: [3, 7]
+
+  - sessions: [12, 12]
+    label: Write the bio
+    steps:
+      - action: profile_mutation
+        field: bio
+      - action: feed_scroll
+        seconds: [90, 220]
+      - action: like
+        count: [1, 3]
+
+  - sessions: [13, 16]
+    label: Groups, and friends continuing
+    steps:
+      - action: feed_scroll
+        seconds: [150, 320]
+      - action: watch_videos
+        count: [3, 8]
+      - action: like
+        count: [2, 6]
+      - action: join_group
+        count: [1, 1]
+        skipChance: 0.45
+      - action: friend_request
+        count: [1, 3]
+        skipChance: 0.2
+      - action: visit_profiles
+        count: [1, 3]
+        skipChance: 0.4
+
+  - sessions: [17, 21]
+    label: Settling — steady low activity, first comments
+    steps:
+      - action: feed_scroll
+        seconds: [120, 300]
+      - action: watch_videos
+        count: [3, 8]
+      - action: like
+        count: [2, 6]
+      - action: comment
+        count: [1, 2]
+        skipChance: 0.5
+      - action: friend_request
+        count: [1, 2]
+        skipChance: 0.35

@@ -1,0 +1,65 @@
+<!doctype html>
+<!--
+  A fake friend-suggestion surface, for proving friend_request works before it
+  is ever pointed at Facebook.
+
+  Deliberately includes a person the fleet already holds and one of the fleet's
+  own accounts: both must be skipped. On Facebook a shared friend is a mutual
+  connection visible from BOTH accounts, which is exactly the link that makes a
+  cluster of accounts look like a cluster.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>fixture people</title>
+    <style>
+      body { font: 15px/1.5 system-ui; margin: 0; background: #111; color: #eee; padding: 16px; }
+      [role='listitem'] { border: 1px solid #262626; border-radius: 10px; padding: 12px; margin-bottom: 10px; max-width: 520px; }
+      button { background: #1c1c1c; border: 1px solid #333; color: #eee; border-radius: 8px; padding: 4px 10px; cursor: pointer; }
+      button[data-sent='1'] { background: #1f4f2f; border-color: #3a3; }
+      .mutuals { color: #888; font-size: 13px; }
+    </style>
+  </head>
+  <body>
+    <h3>People you may know</h3>
+    <div id="list"></div>
+    <script>
+      const PEOPLE = [
+        { id: 'person-1', name: 'Dana Whitfield', mutuals: 4 },
+        { id: 'person-2', name: 'Marcus Lee', mutuals: 2 },
+        // Already friended by another account in the fleet.
+        { id: 'person-3', name: 'Priya Raman', mutuals: 7 },
+        { id: 'person-4', name: 'Tom Alvarez', mutuals: 1 },
+        // One of our own accounts. Friending it would join two identities.
+        { id: 'fleet-own-account', name: 'Our Other Persona', mutuals: 3 },
+        { id: 'person-5', name: 'Sofia Grant', mutuals: 5 },
+        { id: 'person-6', name: 'Ethan Brooks', mutuals: 2 }
+      ]
+
+      document.getElementById('list').innerHTML = PEOPLE.map(
+        (p) => `
+        <div role="listitem" data-person-id="${p.id}">
+          <a role="link" href="#${p.id}"><span>${p.name}</span></a>
+          <div class="mutuals">${p.mutuals} mutual friends</div>
+          <div style="margin-top:8px">
+            <button role="button" aria-label="Add friend: ${p.name}">Add friend</button>
+          </div>
+        </div>`
+      ).join('')
+
+      // Recorded into the DOM, not onto window: patchright evaluates in an
+      // isolated world, so page globals are invisible to the harness.
+      const sent = []
+      document.querySelectorAll('button[aria-label^="Add friend"]').forEach((b) => {
+        b.addEventListener('click', (e) => {
+          const card = e.target.closest('[data-person-id]')
+          sent.push(card.dataset.personId)
+          e.target.dataset.sent = '1'
+          e.target.textContent = 'Requested'
+          document.body.setAttribute('data-sent', JSON.stringify(sent))
+        })
+      })
+      document.body.setAttribute('data-sent', JSON.stringify(sent))
+    </script>
+  </body>
+</html>
