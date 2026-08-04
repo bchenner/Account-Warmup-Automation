@@ -19,6 +19,13 @@ export const STEP_KINDS = [
   'story_views',
   'watch_videos',
   'search',
+  /**
+   * Search AND watch what comes back. The step that reorients an account whose
+   * feed is in the wrong language: consumption is what a recommender learns
+   * from, and a feed that offers nothing in English cannot be filtered into
+   * offering it. Engages with nothing.
+   */
+  'explore',
   'visit_profiles',
   'follow',
   'like',

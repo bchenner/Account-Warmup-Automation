@@ -20,7 +20,7 @@ const load = (level: string, platform = 'instagram'): Script =>
 
 const script = load('establish')
 const PLATFORMS = ['instagram', 'facebook']
-const ALL_LEVELS = ['observe', 'light', 'standard', 'establish']
+const ALL_LEVELS = ['observe', 'reorient', 'light', 'standard', 'establish']
 
 /**
  * A level is a CEILING, not a suggestion. If `observe` is defined as "no
@@ -38,6 +38,18 @@ describe('engagement levels are ceilings', () => {
   // contain it AT ALL — a rare action still happens, so a ceiling expressed as
   // a low skipChance is not a ceiling.
   const WRITES = ['like', 'follow', 'comment', 'profile_mutation', 'accept_friend', 'join_group']
+
+  it('reorient searches and watches, and still writes nothing', () => {
+    // A preparation mode, not a rung on the ladder: it acts on the recommender
+    // rather than on other people, so it must remain as safe as `observe`.
+    for (const platform of PLATFORMS) {
+      const actions = actionsIn('reorient', platform)
+      expect([...actions], platform).toContain('explore')
+      for (const w of WRITES) {
+        expect([...actions], `${platform}/reorient contains ${w}`).not.toContain(w)
+      }
+    }
+  })
 
   for (const platform of PLATFORMS) {
     describe(platform, () => {

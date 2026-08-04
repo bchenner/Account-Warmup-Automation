@@ -18,6 +18,8 @@ import {
 } from '@shared/human'
 import { shouldEngage, watchPlan, type TasteProfile } from '@shared/content'
 import { matchesCountry } from '@shared/geo'
+import { reorientQueries } from '@shared/queries'
+import { NICHES, type NicheKey } from '@shared/niches'
 import { decorate, type EmojiHabit } from '@shared/emoji'
 import {
   assessComment,
@@ -116,6 +118,12 @@ export type RunnerContext = {
    * are in that country — unknown and unreadable both count as no.
    */
   requireCountry?: string
+  /**
+   * Which round of reorientation this is, so an account searching on day 5
+   * does not repeat the phrases it used on day 1. The session index is the
+   * natural value.
+   */
+  exploreRound?: number
   rng?: Rng
 }
 
@@ -506,9 +514,97 @@ async function runStep(page: Page, step: Step, env: StepEnv): Promise<StepReport
         await page.keyboard.type(ch)
         await sleep(delays[i])
       }
+      // Submit it. Typing into the box and walking away is not a search — it
+      // never loads a result page, so the recommender sees nothing.
+      await sleep(uniform(300, 1100, rng) * traits.tempo)
+      await page.keyboard.press('Enter')
+      await page.waitForLoadState('domcontentloaded').catch(() => undefined)
       // A pause reading the results before doing anything with them.
       await sleep(dwellMs(traits, mood, rng))
       return { action: step.action, seen: 0, engaged: 0, detail: `searched "${query}"` }
+    }
+
+    case 'explore': {
+      // Reorients an account whose feed is in the wrong language or country.
+      //
+      // Consumption is what a recommender learns from, so this searches and
+      // then WATCHES what comes back. It engages with nothing — no likes, no
+      // follows, no comments — because the point is to change what the feed
+      // offers, not to act on it.
+      const search = sel.search
+      if (!search) throw new SelectorMiss('search', 'explore')
+      if (!search.resultItem) throw new SelectorMiss('search.resultItem', 'explore')
+
+      const want = countFor(step.count ?? [2, 4], mood, rng)
+      const queries = step.query
+        ? [step.query]
+        : reorientQueries(
+            (ctx.niche in NICHES ? ctx.niche : 'home-fitness') as NicheKey,
+            ctx.accountId,
+            ctx.exploreRound ?? 0,
+            want
+          )
+
+      let searched = 0
+      let opened = 0
+      for (const query of queries.slice(0, want)) {
+        await page.goto(search.url, { waitUntil: 'domcontentloaded' })
+        await sleep(uniform(1200, 3400, rng) * traits.tempo)
+
+        const input = page.locator(search.input)
+        if ((await input.count()) === 0) throw new SelectorMiss(search.input, 'explore')
+        await input.first().click()
+
+        const delays = typingDelays(query, traits, rng)
+        for (const [i, ch] of [...query].entries()) {
+          await page.keyboard.type(ch)
+          await sleep(delays[i])
+        }
+        await sleep(uniform(300, 1200, rng) * traits.tempo)
+        await page.keyboard.press('Enter')
+        await page.waitForLoadState('domcontentloaded').catch(() => undefined)
+        await sleep(uniform(1800, 4200, rng) * traits.tempo)
+        searched++
+
+        // Narrowing to video where the platform offers it, since watch time is
+        // the heaviest signal these recommenders carry.
+        if (search.videoTab) {
+          const tab = page.locator(search.videoTab)
+          if ((await tab.count()) > 0) {
+            await tab.first().click({ timeout: 8000 }).catch(() => undefined)
+            await sleep(uniform(1500, 3500, rng) * traits.tempo)
+          }
+        }
+
+        const results = page.locator(search.resultItem)
+        const found = await results.count()
+        if (found === 0) continue
+
+        // One or two results per query, opened and actually watched. Reading a
+        // results page without opening anything is a much weaker signal than
+        // dwelling on what it returned.
+        const opens = Math.min(found, int(1, 2, rng))
+        for (let i = 0; i < opens; i++) {
+          const pick = int(0, Math.min(found, 8) - 1, rng)
+          const target = results.nth(pick)
+          if ((await target.count()) === 0) continue
+          await target.click({ timeout: 10_000 }).catch(() => undefined)
+          await page.waitForLoadState('domcontentloaded').catch(() => undefined)
+          // Long enough to count as watched rather than bounced.
+          await sleep(uniform(9000, 26_000, rng) * traits.tempo * mood)
+          opened++
+          await page.goBack().catch(() => undefined)
+          await page.waitForLoadState('domcontentloaded').catch(() => undefined)
+          await sleep(uniform(1200, 3000, rng) * traits.tempo)
+        }
+      }
+
+      return {
+        action: step.action,
+        seen: searched,
+        engaged: opened,
+        detail: `searched ${searched} (${queries.slice(0, want).join(', ')}), watched ${opened}`
+      }
     }
 
     case 'story_views': {

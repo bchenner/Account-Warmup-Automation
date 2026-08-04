@@ -40,6 +40,11 @@ feed:
 search:
   url: https://www.facebook.com/search/top/
   input: 'input[aria-label="Search Facebook"]'
+  # `explore` opens results and watches them — typing a query alone teaches the
+  # recommender nothing.
+  results: 'div[role="feed"]'
+  resultItem: 'div[role="article"] a[role="link"][href*="/videos/"], div[role="article"] a[role="link"][href*="/posts/"]'
+  videoTab: 'a[role="link"][href*="/search/videos"]'
 
 stories:
   trayItem: 'div[aria-label^="Story by"]'

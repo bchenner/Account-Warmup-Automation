@@ -1,0 +1,67 @@
+# LEVEL — Reorient. Search in English, and watch what comes back.
+#
+# For an account whose feed is in the wrong language. This is not a rung on the
+# engagement ladder — it is a PREPARATION mode. Run it when a warmup would
+# otherwise do nothing, and skip it entirely when the feed is already in the
+# language the account is being warmed toward.
+#
+# The problem it solves was measured, not imagined: a real aged account
+# registered in the Middle East had a feed that was wholly Arabic, and the
+# English-only content filter correctly rejected every single post. A warmup
+# that filters FOR English in a feed containing none is a no-op forever. The
+# feed has to be changed before it can be filtered.
+#
+# Consumption is what a recommender learns from, so `explore` searches and then
+# WATCHES the results — it does not merely type a query. It engages with
+# nothing: no likes, no follows, no comments. The point is to change what the
+# feed offers, not to act on it.
+#
+# Queries are composed from the niche's own interest terms and a small anchor
+# list, seeded per account and per session, so no two accounts search the same
+# phrases in the same order and no account repeats itself day to day.
+#
+# 21 sessions because a recommendation graph does not turn around in a week.
+# Expect to run this, then check the feed by hand, and only move on once it is
+# actually showing English.
+
+platform: facebook
+version: '2026.08-reorient-a'
+length: 21
+
+rest:
+  count: [3, 4]
+  window: [5, 20]
+  minGap: 2
+
+sessions:
+  - sessions: [1, 3]
+    label: Light — a couple of searches, watched properly
+    steps:
+      - action: feed_scroll
+        seconds: [60, 150]
+      - action: explore
+        count: [2, 3]
+
+  - sessions: [4, 14]
+    label: Searching in earnest
+    steps:
+      # Still reads the feed, because ignoring it entirely while searching
+      # constantly is not what a person does.
+      - action: feed_scroll
+        seconds: [90, 220]
+      - action: explore
+        count: [3, 5]
+      - action: watch_videos
+        count: [2, 5]
+        skipChance: 0.3
+
+  - sessions: [15, 21]
+    label: Consolidating — the feed should be turning by now
+    steps:
+      - action: feed_scroll
+        seconds: [120, 300]
+      - action: watch_videos
+        count: [3, 7]
+      - action: explore
+        count: [2, 4]
+        skipChance: 0.25

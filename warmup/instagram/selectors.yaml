@@ -22,3 +22,7 @@ feed:
 search:
   url: https://www.instagram.com/explore/
   input: 'input[aria-label="Search input"]'
+  # `explore` opens results and watches them — typing a query alone teaches the
+  # recommender nothing.
+  results: 'main'
+  resultItem: 'main a[href*="/reel/"], main a[href*="/p/"]'

@@ -1,0 +1,62 @@
+<!doctype html>
+<!--
+  A fake search surface, for proving `explore` before it is pointed at a real
+  platform. The point of explore is that it OPENS results and dwells on them —
+  typing a query and walking away teaches a recommender nothing — so results
+  here are real links that navigate, and each records that it was opened.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>fixture search</title>
+    <style>
+      body { font: 15px/1.5 system-ui; margin: 0; background: #111; color: #eee; padding: 16px; }
+      input { background: #1c1c1c; border: 1px solid #333; color: #eee; padding: 8px 12px; border-radius: 8px; width: 340px; }
+      .r { border: 1px solid #262626; border-radius: 10px; padding: 12px; margin: 10px 0; max-width: 560px; }
+      a { color: #7aa2f7; }
+    </style>
+  </head>
+  <body>
+    <form id="f"><input aria-label="Search" name="q" autocomplete="off" /></form>
+    <div id="out"></div>
+    <script>
+      const params = new URLSearchParams(location.search)
+      const q = params.get('q')
+      const watched = params.get('watch')
+
+      // Persisted across navigations, since explore navigates away and back.
+      const KEY = 'fixture-explore'
+      const state = JSON.parse(localStorage.getItem(KEY) || '{"searched":[],"opened":[]}')
+      const save = () => localStorage.setItem(KEY, JSON.stringify(state))
+
+      if (watched) {
+        // A "post" page. Dwelling here is what explore is measuring.
+        if (!state.opened.includes(watched)) { state.opened.push(watched); save() }
+        document.getElementById('out').innerHTML =
+          '<h3>Watching ' + watched + '</h3><p>from search: ' + (q || '') + '</p>'
+      } else if (q) {
+        if (!state.searched.includes(q)) { state.searched.push(q); save() }
+        document.getElementById('f').querySelector('input').value = q
+        document.getElementById('out').innerHTML = [1, 2, 3, 4, 5]
+          .map((n) => {
+            const id = encodeURIComponent(q) + '-' + n
+            return '<div class="r"><a href="?q=' + encodeURIComponent(q) +
+              '&watch=' + id + '">Result ' + n + ' for ' + q + '</a></div>'
+          })
+          .join('')
+      }
+
+      // The harness reads these off the DOM: patchright evaluates in an
+      // isolated world, so page globals are invisible to it.
+      document.body.setAttribute('data-searched', JSON.stringify(state.searched))
+      document.body.setAttribute('data-opened', JSON.stringify(state.opened))
+
+      // Enter submits, exactly as a real search box does.
+      document.getElementById('f').addEventListener('submit', (e) => {
+        e.preventDefault()
+        const v = e.target.querySelector('input').value
+        location.search = '?q=' + encodeURIComponent(v)
+      })
+    </script>
+  </body>
+</html>

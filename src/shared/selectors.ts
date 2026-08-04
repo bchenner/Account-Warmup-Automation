@@ -64,7 +64,18 @@ export const SearchSelectorsSchema = z.object({
   url: z.string(),
   input: z.string(),
   /** Optional results container to wait for. */
-  results: z.string().optional()
+  results: z.string().optional(),
+  /**
+   * One result worth opening.
+   *
+   * Required by `explore`, which is the step that reorients an account's
+   * recommendation graph. Typing a query teaches the recommender almost
+   * nothing; watching what comes back is the whole signal, so a result has to
+   * be openable.
+   */
+  resultItem: z.string().optional(),
+  /** Optional tab that narrows results to video, where the platform has one. */
+  videoTab: z.string().optional()
 })
 
 /**

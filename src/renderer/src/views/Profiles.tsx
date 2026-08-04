@@ -6,6 +6,8 @@ import { NICHES, NICHE_KEYS } from '@shared/niches'
 /** Shown on hover. The level IS the ceiling — see warmup/instagram/*.yaml. */
 const LEVEL_HINTS: Record<Level, string> = {
   observe: 'Consumption only — watches and scrolls, never likes, follows or comments.',
+  reorient:
+    'Searches in English and watches the results, to pull a feed that is in the wrong language toward the right one. Still writes nothing. Run this before warmup when the feed is not in English.',
   light: 'Consumption plus likes. No follows, no comments.',
   standard: 'Full ramp for an aged account: likes, then follows, then comments. Never edits the profile.',
   establish:

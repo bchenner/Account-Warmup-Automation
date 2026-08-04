@@ -92,7 +92,7 @@ try {
   for (const platform of ['instagram', 'facebook']) {
     PLATFORM = platform
     const seen = {}
-    for (const level of ['observe', 'light', 'standard', 'establish']) {
+    for (const level of ['observe', 'reorient', 'light', 'standard', 'establish']) {
       await call(
         ([id, l, p]) => window.boiler.updateAccount('levelcheck', id, p, { level: l }),
         [created.id, level, platform],

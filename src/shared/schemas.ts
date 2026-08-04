@@ -184,13 +184,19 @@ export type Health = z.infer<typeof HealthSchema>
  * level disallows is absent from its file rather than merely rare.
  *
  * observe   — consumption only. No writes at all.
+ * reorient  — searches in English and WATCHES what comes back, to drag a feed
+ *             that is in the wrong language toward the right one. Still no
+ *             writes. Sits between observe and light because it acts on the
+ *             recommender rather than on other people, but it is really a
+ *             preparation mode: run it when an account's feed is not in the
+ *             language its warmup filters for, and skip it when it already is.
  * light     — consumption plus likes.
  * standard  — the full ramp: likes, then follows, then comments.
  * establish — standard plus building the profile. New accounts ONLY: it edits
  *             the username, bio and avatar, which on an aged account is the
  *             strongest account-takeover signal there is.
  */
-export const LEVELS = ['observe', 'light', 'standard', 'establish'] as const
+export const LEVELS = ['observe', 'reorient', 'light', 'standard', 'establish'] as const
 export const LevelSchema = z.enum(LEVELS)
 export type Level = z.infer<typeof LevelSchema>
 
