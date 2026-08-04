@@ -47,6 +47,7 @@ import {
   listPersonas,
   listProfiles,
   nextProfileId,
+  reclaimDisk,
   saveAccount,
   saveProfile,
   slugify,
@@ -363,6 +364,10 @@ export function registerIpc(): void {
       )
       return null
     })
+  )
+
+  ipcMain.handle(CH.profileReclaim, (_e, personaSlug: string, id: string) =>
+    guard(() => reclaimDisk(personaSlug, id))
   )
 
   ipcMain.handle(CH.profileLaunch, (_e, id: string) =>

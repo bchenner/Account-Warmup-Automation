@@ -165,6 +165,44 @@ export async function loadRegistry(): Promise<Registry> {
   }
 }
 
+/**
+ * How many entries each fleet-wide list keeps.
+ *
+ * These lists are loaded and rewritten on EVERY session, and they only ever
+ * grow. At thirty accounts running daily they would reach tens of thousands of
+ * entries within weeks — a file rewritten in full each time, and a corpus the
+ * comment picker scans linearly.
+ *
+ * The invariants they protect are all about RECENT overlap: do not comment on
+ * a post another account just commented on, do not reuse a phrasing that is
+ * still visible. A post from three months ago is not in anyone's feed. Follow
+ * and friend edges are the exception — those are permanent and visible from
+ * both ends, so they keep a far larger budget.
+ */
+const CAPS: Record<keyof Registry, number> = {
+  followedTargets: 50_000,
+  friendedTargets: 50_000,
+  joinedGroups: 50_000,
+  usedComments: 4_000,
+  usedSourceFingerprints: 4_000,
+  claimedPosts: 20_000
+}
+
+/** Keeps the most recent entries, which are the ones the invariants are about. */
+function cap<T>(items: T[], limit: number): T[] {
+  return items.length <= limit ? items : items.slice(items.length - limit)
+}
+
 export async function saveRegistry(r: Registry): Promise<void> {
-  await writeAtomic(registryPath(), stringify(r))
+  await writeAtomic(
+    registryPath(),
+    stringify({
+      followedTargets: cap(r.followedTargets, CAPS.followedTargets),
+      friendedTargets: cap(r.friendedTargets, CAPS.friendedTargets),
+      joinedGroups: cap(r.joinedGroups, CAPS.joinedGroups),
+      usedComments: cap(r.usedComments, CAPS.usedComments),
+      usedSourceFingerprints: cap(r.usedSourceFingerprints, CAPS.usedSourceFingerprints),
+      claimedPosts: cap(r.claimedPosts, CAPS.claimedPosts)
+    })
+  )
 }

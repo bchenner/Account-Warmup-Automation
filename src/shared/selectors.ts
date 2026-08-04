@@ -39,7 +39,21 @@ export const FeedSelectorsSchema = z.object({
   /** Attribute on `post` holding a stable id, used for the comment registry. */
   postIdAttribute: z.string().default('data-post-id'),
   /** Attribute on `post` holding the author's handle, for the follow registry. */
-  authorAttribute: z.string().default('data-author')
+  authorAttribute: z.string().default('data-author'),
+  /**
+   * Where the author's name lives when it is NOT an attribute on the post.
+   *
+   * Facebook puts no author attribute on a feed unit, and its author LINK is
+   * indistinguishable from a mention or a photo link. What it does expose,
+   * reliably, is a menu button labelled "Actions for this post by NAME" — so
+   * the name is read from an attribute on a nested element, with the fixed
+   * prefix stripped.
+   */
+  author: z.string().optional(),
+  /** Attribute to read on `author`. Its text content is used when absent. */
+  authorAttr: z.string().optional(),
+  /** Leading text to strip from that value, e.g. "Actions for this post by ". */
+  authorStrip: z.string().optional()
 })
 
 /** Stories are a distinct surface: a tray, then a full-screen viewer. */

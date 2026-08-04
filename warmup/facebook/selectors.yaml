@@ -19,21 +19,32 @@ version: '2026.08-draft'
 
 feed:
   url: https://www.facebook.com/
-  post: 'div[role="article"]'
-  # Facebook marks the post body for its own ad-preview tooling; this has been
-  # the most stable hook available, but it is exactly the kind of thing that
-  # moves.
-  caption: '[data-ad-preview="message"], [data-ad-comet-preview="message"]'
+  # NOT div[role="article"]. That matched two empty skeleton containers on a
+  # page that was visibly full of posts, and nothing at all inside a real feed
+  # unit. Facebook marks each feed unit with aria-posinset instead — confirmed
+  # against a live account: 9 units, the real one carrying 719 characters of
+  # text, 55 spans, an author, a Like button and a comment control.
+  post: '[aria-posinset]'
+  # The post body. Two per unit, the message and (when translated) its original.
+  caption: 'div[dir="auto"]'
   video: 'video'
-  translationPrompt: 'text=See translation'
+  # Facebook AUTO-TRANSLATES foreign posts and then offers to undo it, so this
+  # is the affordance to look for rather than "See translation". Its presence
+  # means the post was not written in the account's language.
+  translationPrompt: 'text=See original'
   likeButton: 'div[role="button"][aria-label="Like"]'
+  # Opens the composer; the box itself only exists once it is clicked.
   commentInput: 'div[role="textbox"][aria-label^="Write a comment"]'
-  # Comment bodies sit in their own articles nested inside the post.
   commentText: 'div[role="article"] div[dir="auto"]'
-  authorLink: 'h3 a[role="link"], strong a[role="link"]'
-  # Neither of these exists on a Facebook article. Left as the schema defaults
-  # so the intent is visible: the runner falls back to a content-derived id,
-  # and the author is read from the profile link rather than an attribute.
+  authorLink: 'a[role="link"][href^="https://www.facebook.com/"]'
+  # No author attribute exists on a feed unit, and the author LINK is
+  # indistinguishable from a mention or a photo link. The post's own menu button
+  # is labelled "Actions for this post by NAME", which is unambiguous.
+  author: '[aria-label^="Actions for this post by"]'
+  authorAttr: 'aria-label'
+  authorStrip: 'Actions for this post by '
+  # Neither of these exists on Facebook; left as the schema defaults so the
+  # fallbacks above are what actually run.
   postIdAttribute: 'data-post-id'
   authorAttribute: 'data-author'
 

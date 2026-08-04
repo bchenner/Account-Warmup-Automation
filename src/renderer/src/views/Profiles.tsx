@@ -80,6 +80,14 @@ export default function Profiles(): JSX.Element {
     await refresh()
   }
 
+  const reclaim = async (row: ProfileRow): Promise<void> => {
+    setError(null)
+    const res = await window.boiler.reclaimDisk(row.personaSlug, row.id)
+    if (!res.ok) return setError(res.error)
+    setNotice(`${row.name}: freed ${(res.value.freedBytes / 1024 ** 2).toFixed(0)} MB of cache.`)
+    await refresh()
+  }
+
   const unassigned = proxies.filter((p) => !p.assignedProfileId && p.lastVerification?.ok)
 
   return (
@@ -142,6 +150,7 @@ export default function Profiles(): JSX.Element {
               onLaunch={() => launch(row)}
               onStop={() => stop(row)}
               onDelete={() => remove(row)}
+              onReclaim={() => reclaim(row)}
             />
           ))}
         </div>
@@ -182,7 +191,8 @@ function Row({
   onError,
   onLaunch,
   onStop,
-  onDelete
+  onDelete,
+  onReclaim
 }: {
   row: ProfileRow
   busy: boolean
@@ -195,6 +205,7 @@ function Row({
   onLaunch: () => void
   onStop: () => void
   onDelete: () => void
+  onReclaim: () => void
 }): JSX.Element {
   return (
     <div
@@ -254,6 +265,13 @@ function Row({
               {busy ? 'Opening…' : 'Open'}
             </button>
           )}
+          <button
+            onClick={onReclaim}
+            title="Delete this profile's browser caches. Keeps cookies, logins and everything that makes it this account."
+            className="rounded-lg border border-surface-border px-2 py-1 text-xs text-neutral-400 hover:bg-surface-tertiary"
+          >
+            Reclaim
+          </button>
           <button
             onClick={onDelete}
             title={

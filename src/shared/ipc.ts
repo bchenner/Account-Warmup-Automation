@@ -12,6 +12,7 @@ export const CH = {
   profileCreate: 'profile:create',
   profileUpdate: 'profile:update',
   profileDelete: 'profile:delete',
+  profileReclaim: 'profile:reclaim',
   profileLaunch: 'profile:launch',
   profileStop: 'profile:stop',
   personaList: 'persona:list',
@@ -111,6 +112,7 @@ export type BoilerApi = {
   createProfile: (input: CreateProfileInput) => Promise<Result<Profile>>
   updateProfile: (profile: Profile) => Promise<Result<Profile>>
   deleteProfile: (personaSlug: string, id: string) => Promise<Result<null>>
+  reclaimDisk: (personaSlug: string, id: string) => Promise<Result<{ freedBytes: number }>>
   launchProfile: (id: string) => Promise<Result<LaunchResult>>
   addAccount: (input: AddAccountInput) => Promise<Result<null>>
   updateAccount: (

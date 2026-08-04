@@ -124,6 +124,18 @@ export type RunnerContext = {
    * natural value.
    */
   exploreRound?: number
+  /**
+   * Every action the PROGRAMME declares anywhere, not just this session.
+   *
+   * The level is supposed to be a ceiling, and asserting that over the step
+   * list is not enough: watch_videos likes as part of its own watch plan, so
+   * `observe` — defined as "no writes at all" — would quietly like posts.
+   * Found on a live account. When this is set, an incidental write whose
+   * action the programme never declares is suppressed.
+   *
+   * Left undefined by fixtures, which then behave as before.
+   */
+  permitted?: ReadonlySet<string>
   rng?: Rng
 }
 
@@ -221,7 +233,20 @@ async function readItems(page: Page, sel: SelectorSet, step: string): Promise<It
           }
         }
 
-        const author = n.getAttribute(s.authorAttribute) || ''
+        // The author is an attribute on the post where the platform provides
+        // one, and otherwise a value read off a nested element — Facebook
+        // exposes it only as "Actions for this post by NAME" on a menu button.
+        let author = n.getAttribute(s.authorAttribute) || ''
+        if (!author && s.author) {
+          const an = n.querySelector(s.author)
+          if (an) {
+            const raw = s.authorAttr ? an.getAttribute(s.authorAttr) : an.textContent
+            author = (raw || '').trim()
+            if (s.authorStrip && author.startsWith(s.authorStrip)) {
+              author = author.slice(s.authorStrip.length).trim()
+            }
+          }
+        }
         const declaredId = n.getAttribute(s.postIdAttribute)
         let derived = ''
         if (!declaredId) {
@@ -249,7 +274,10 @@ async function readItems(page: Page, sel: SelectorSet, step: string): Promise<It
       translationPrompt: f.translationPrompt,
       commentText: f.commentText,
       postIdAttribute: f.postIdAttribute,
-      authorAttribute: f.authorAttribute
+      authorAttribute: f.authorAttribute,
+      author: f.author,
+      authorAttr: f.authorAttr,
+      authorStrip: f.authorStrip
     }
   )
 }
@@ -399,7 +427,10 @@ async function runStep(page: Page, step: Step, env: StepEnv): Promise<StepReport
         await sleep(base * (0.4 + plan.fraction * 1.6))
         watched++
 
-        if (plan.like && sel.feed.likeButton && !env.likedThisSession.has(item.postId)) {
+        // Incidental like, gated by the programme's own ceiling: a level that
+        // never declares a `like` step must not like here either.
+        const mayLike = ctx.permitted ? ctx.permitted.has('like') : true
+        if (plan.like && mayLike && sel.feed.likeButton && !env.likedThisSession.has(item.postId)) {
           await clickIn(page, sel.feed.post, item.index, sel.feed.likeButton, 'watch_videos', rng)
           env.likedThisSession.add(item.postId)
           liked++

@@ -26,8 +26,15 @@ export type DueSession = {
   dueAt: number
 }
 
-/** How late a session may be and still run: past this it is skipped, not queued. */
-const GRACE_MS = 90 * 60_000
+/**
+ * How late a session may be and still run: past this it is skipped, not queued.
+ *
+ * Wide enough that a fleet draining sequentially does not start dropping
+ * sessions. Thirty accounts at roughly six minutes each is three hours of
+ * browser time, and scheduled times collide by chance, so a session can wait a
+ * while for its turn. Past this it is a session that did not happen.
+ */
+const GRACE_MS = 4 * 3600_000
 
 export async function findDue(now = Date.now()): Promise<DueSession[]> {
   const out: DueSession[] = []
@@ -86,22 +93,42 @@ export type SchedulerHandle = { stop: () => void }
  */
 export function startScheduler(
   runOne: (d: DueSession) => Promise<void>,
-  intervalMs = 60_000
+  intervalMs = 60_000,
+  /**
+   * How many sessions may run at once.
+   *
+   * Measured: one session is about 0.6 GB and 27% of a core. Two is
+   * comfortable on any machine that can run this at all, and a fleet of thirty
+   * needs the throughput — sequentially that is three hours of browser time a
+   * day, and every collision pushes a session closer to being dropped.
+   *
+   * Kept low deliberately. Beyond a handful it stops being a resource question
+   * and starts being a behavioural one: your accounts are on different IPs, but
+   * ten of them acting in the same minute every single day is a rhythm they
+   * would not share by chance.
+   */
+  concurrency = 2
 ): SchedulerHandle {
-  let busy = false
+  const inFlight = new Set<string>()
+  let scanning = false
 
   const tick = async (): Promise<void> => {
-    if (busy) return
-    busy = true
+    if (scanning || inFlight.size >= concurrency) return
+    scanning = true
     try {
-      const due = await findDue()
-      // One per tick, not all of them: two Chromes on one machine at once is
-      // both a resource problem and a coincidence no two real people share.
-      if (due[0]) await runOne(due[0])
+      const due = (await findDue()).filter((d) => !inFlight.has(d.profileId))
+      for (const next of due.slice(0, concurrency - inFlight.size)) {
+        inFlight.add(next.profileId)
+        // Deliberately not awaited: the scan returns so the next tick can top
+        // the pool back up as sessions finish.
+        void runOne(next)
+          .catch(() => undefined)
+          .finally(() => inFlight.delete(next.profileId))
+      }
     } catch {
       // A scheduler that dies on one bad account stops the whole fleet.
     } finally {
-      busy = false
+      scanning = false
     }
   }
 

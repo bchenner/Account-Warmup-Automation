@@ -1,4 +1,4 @@
-import { readFile, writeFile, mkdir, readdir, rm, rename } from 'node:fs/promises'
+import { readFile, writeFile, mkdir, readdir, rm, rename, stat } from 'node:fs/promises'
 // (writeFile is reused by seedPreferences below.)
 import { existsSync } from 'node:fs'
 import { join, dirname } from 'node:path'
@@ -254,6 +254,67 @@ export function isRunning(profileId: string): boolean {
 
 export function runningIds(): string[] {
   return [...new Set([...running.keys(), ...sessionBusy])]
+}
+
+/**
+ * Directories inside a profile that are pure cache, and the ones that are the
+ * account's identity.
+ *
+ * Measured on a profile after a few real sessions: 536 MB total, of which
+ * Cache was 295 MB and Code Cache 64 MB. At thirty profiles that is around
+ * 16 GB, most of it regenerable.
+ *
+ * What is NOT here matters more than what is. Cookies, Local Storage, Session
+ * Storage, IndexedDB, Preferences, Local State and the Network directory hold
+ * the login, the device identifiers Meta sets, and the accumulated state that
+ * IS the account. Deleting any of them logs the account out and throws away an
+ * identity no re-login restores. This list is deliberately explicit rather than
+ * a pattern match, so nothing new gets swept up by accident.
+ */
+const DISPOSABLE = [
+  'Default/Cache',
+  'Default/Code Cache',
+  'Default/GPUCache',
+  'Default/DawnGraphiteCache',
+  'Default/DawnWebGPUCache',
+  'GrShaderCache',
+  'ShaderCache',
+  'GraphiteDawnCache',
+  'component_crx_cache',
+  'optimization_guide_model_store',
+  'BrowserMetrics'
+]
+
+/**
+ * Deletes a profile's caches, keeping everything that constitutes its identity.
+ *
+ * Refuses while the profile is open: Chrome holds these files, the delete would
+ * half-succeed, and a half-deleted cache is how a profile gets corrupted.
+ */
+export async function reclaimDisk(
+  personaSlug: string,
+  id: string
+): Promise<{ freedBytes: number }> {
+  if (isRunning(id)) throw new Error('close this profile before reclaiming its disk space')
+  const root = chromeDir(personaSlug, id)
+  let freed = 0
+  for (const rel of DISPOSABLE) {
+    const dir = join(root, ...rel.split('/'))
+    if (!existsSync(dir)) continue
+    freed += await dirSize(dir)
+    await rm(dir, { recursive: true, force: true })
+  }
+  return { freedBytes: freed }
+}
+
+async function dirSize(dir: string): Promise<number> {
+  let total = 0
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name)
+    if (entry.isDirectory()) total += await dirSize(full)
+    else total += (await stat(full).catch(() => ({ size: 0 }))).size
+  }
+  return total
 }
 
 /** Real Chrome, not Chromium — the fingerprint we present should be a real one. */

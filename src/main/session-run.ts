@@ -1,10 +1,10 @@
 import { chromium, type BrowserContext } from 'patchright'
-import { readFile } from 'node:fs/promises'
+import { readFile, stat } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { parse } from 'yaml'
 import { app } from 'electron'
-import { ScriptSchema, planSessions, type PlannedSession } from '@shared/session'
+import { ScriptSchema, planSessions, type PlannedSession, type Script } from '@shared/session'
 import { SelectorSetSchema } from '@shared/selectors'
 import { withPersonality } from '@shared/content'
 import { NICHES, NICHE_KEYS, coerceNiche, searchTermsFor } from '@shared/niches'
@@ -39,20 +39,40 @@ async function readYaml(path: string): Promise<unknown> {
   return parse(await readFile(path, 'utf8'))
 }
 
+/**
+ * Parsed programmes, keyed by file and invalidated on mtime.
+ *
+ * The scheduler asks for a plan for every account on every tick. At thirty
+ * accounts and a one-minute tick that is around 43,000 YAML reads and zod
+ * validations a day, for files that change when someone edits them and never
+ * otherwise. Editing a programme still takes effect without a restart, because
+ * the mtime moves.
+ */
+const scriptCache = new Map<string, { mtimeMs: number; script: Script }>()
+
+async function loadScript(platform: string, level: Level): Promise<Script> {
+  const file = join(assetDir(), platform, `${level}.yaml`)
+  if (!existsSync(file)) {
+    throw new Error(`no "${level}" warmup programme for ${platform} (expected ${file})`)
+  }
+  const { mtimeMs } = await stat(file)
+  const hit = scriptCache.get(file)
+  if (hit && hit.mtimeMs === mtimeMs) return hit.script
+
+  const script = ScriptSchema.parse(await readYaml(file))
+  if (script.platform !== platform) {
+    throw new Error(`${file} declares platform "${script.platform}" but sits under ${platform}`)
+  }
+  scriptCache.set(file, { mtimeMs, script })
+  return script
+}
+
 export async function loadPlan(
   platform: string,
   level: Level,
   accountId: string
 ): Promise<PlannedSession[]> {
-  const file = join(assetDir(), platform, `${level}.yaml`)
-  if (!existsSync(file)) {
-    throw new Error(`no "${level}" warmup programme for ${platform} (expected ${file})`)
-  }
-  const script = ScriptSchema.parse(await readYaml(file))
-  if (script.platform !== platform) {
-    throw new Error(`${file} declares platform "${script.platform}" but sits under ${platform}`)
-  }
-  return planSessions(script, accountId)
+  return planSessions(await loadScript(platform, level), accountId)
 }
 
 export type SessionOutcome = SessionReport & {
@@ -77,6 +97,10 @@ export async function runWarmupSession(args: {
   const accountId = `${profile.id}:${account.platform}`
 
   const plan = await loadPlan(account.platform, account.level, accountId)
+  // The ceiling is the union of everything the programme declares across all
+  // of its sessions — not just today's — so a level that never likes cannot
+  // like on the one day watch_videos decides to.
+  const permitted = new Set(plan.flatMap((s) => s.steps.map((t) => t.action)))
   const session = plan[account.sessionCounter]
   if (!session) {
     throw new Error(
@@ -171,6 +195,7 @@ export async function runWarmupSession(args: {
       taste: withPersonality(NICHES[nicheKey].taste, persona.slug),
       emoji: emojiHabitFor(persona.slug),
       niche: nicheKey,
+      permitted,
       // Confirm friend requests only from where this persona says it lives.
       requireCountry: persona.country,
       selectors,

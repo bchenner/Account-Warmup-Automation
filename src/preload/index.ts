@@ -17,6 +17,7 @@ const api: BoilerApi = {
   createProfile: (input: CreateProfileInput) => ipcRenderer.invoke(CH.profileCreate, input),
   updateProfile: (profile) => ipcRenderer.invoke(CH.profileUpdate, profile),
   deleteProfile: (personaSlug, id) => ipcRenderer.invoke(CH.profileDelete, personaSlug, id),
+  reclaimDisk: (personaSlug, id) => ipcRenderer.invoke(CH.profileReclaim, personaSlug, id),
   launchProfile: (id) => ipcRenderer.invoke(CH.profileLaunch, id),
   addAccount: (input: AddAccountInput) => ipcRenderer.invoke(CH.accountAdd, input),
   updateAccount: (personaSlug, profileId, platform, patch) =>
