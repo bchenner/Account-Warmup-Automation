@@ -1,6 +1,7 @@
 import { readFile, writeFile, mkdir, rename } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { join, dirname } from 'node:path'
+import { safeStorage } from 'electron'
 import { parse, stringify } from 'yaml'
 import { ProxyPoolSchema, type Proxy, type ProxyPool } from '@shared/schemas'
 
@@ -81,4 +82,34 @@ export function nextProxyId(existing: Proxy[]): string {
     if (m) max = Math.max(max, Number(m[1]))
   }
   return `px-${String(max + 1).padStart(3, '0')}`
+}
+
+// ---------------------------------------------------------------------------
+// Proxy credentials
+// ---------------------------------------------------------------------------
+
+/**
+ * Proxy passwords are the only secret this app holds, and only because a
+ * password-auth proxy is otherwise unusable (Chrome cannot authenticate to
+ * one). Encrypted at rest with the OS keystore — DPAPI on Windows — so
+ * proxies.yaml never contains a readable password.
+ *
+ * Social account credentials remain deliberately unstored.
+ */
+export function encryptSecret(plain: string): string {
+  if (!safeStorage.isEncryptionAvailable()) {
+    throw new Error('OS encryption unavailable — refusing to store a proxy password in clear')
+  }
+  return safeStorage.encryptString(plain).toString('base64')
+}
+
+export function decryptSecret(enc: string | null): string | null {
+  if (!enc) return null
+  try {
+    return safeStorage.decryptString(Buffer.from(enc, 'base64'))
+  } catch {
+    // Typically means the OS keystore changed under us (different user or
+    // machine). Better to fail the launch than to send a garbled password.
+    return null
+  }
 }

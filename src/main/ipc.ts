@@ -1,7 +1,7 @@
 import { ipcMain } from 'electron'
 import { CH, type AddProxyInput, type CreateProfileInput, type Result } from '@shared/ipc'
 import { ProfileSchema, ProxySchema, type Profile, type ProfileRow, type Proxy } from '@shared/schemas'
-import { getDataRoot, loadProxyPool, mutateProxies, nextProxyId } from './store'
+import { encryptSecret, decryptSecret, getDataRoot, loadProxyPool, mutateProxies, nextProxyId } from './store'
 import { isAssignable, verifyProxy } from './proxy-verify'
 import {
   deleteProfile,
@@ -27,19 +27,35 @@ async function guard<T>(fn: () => Promise<T>): Promise<Result<T>> {
   }
 }
 
-/** Accepts "1.2.3.4:8080" and the common vendor variants around it. */
-export function parseProxyLine(line: string): { host: string; port: number } | null {
+/**
+ * Accepts "1.2.3.4:8080" and the common vendor variants, including the
+ * host:port:user:pass form vendors hand out. Credentials found on the line are
+ * kept — Chrome cannot use them directly, but the local relay can.
+ */
+export function parseProxyLine(
+  line: string
+): { host: string; port: number; username?: string; password?: string } | null {
   const trimmed = line.trim()
   if (!trimmed || trimmed.startsWith('#')) return null
   const withoutScheme = trimmed.replace(/^\w+:\/\//, '')
-  // Vendors also ship host:port:user:pass — we use IP-whitelist auth, so any
-  // credentials are dropped rather than silently relied on (Chrome ignores them).
+
+  // user:pass@host:port
+  const at = withoutScheme.lastIndexOf('@')
+  if (at !== -1) {
+    const [username, ...pw] = withoutScheme.slice(0, at).split(':')
+    const rest = parseProxyLine(withoutScheme.slice(at + 1))
+    return rest ? { ...rest, username, password: pw.join(':') } : null
+  }
+
   const parts = withoutScheme.split(':')
   if (parts.length < 2) return null
   const host = parts[0]
   const port = Number(parts[1])
   if (!host || !Number.isInteger(port) || port < 1 || port > 65535) return null
-  return { host, port }
+  // host:port:user:pass
+  return parts.length >= 4
+    ? { host, port, username: parts[2], password: parts.slice(3).join(':') }
+    : { host, port }
 }
 
 function makeProxy(existing: Proxy[], input: AddProxyInput): Proxy {
@@ -50,6 +66,9 @@ function makeProxy(existing: Proxy[], input: AddProxyInput): Proxy {
     label: input.label ?? '',
     country: (input.country ?? 'US').toUpperCase(),
     expiresAt: input.expiresAt ?? null,
+    username: input.username?.trim() || null,
+    // Encrypted immediately; the clear password never reaches disk.
+    passwordEnc: input.password ? encryptSecret(input.password) : null,
     assignedProfileId: null,
     lastVerification: null
   })
@@ -213,7 +232,16 @@ export function registerIpc(): void {
 
   ipcMain.handle(
     CH.proxyAddBatch,
-    (_e, text: string, defaults: { country?: string; expiresAt?: string | null }) =>
+    (
+      _e,
+      text: string,
+      defaults: {
+        country?: string
+        expiresAt?: string | null
+        username?: string | null
+        password?: string | null
+      }
+    ) =>
       guard(async () => {
         const added: Proxy[] = []
         const skipped: string[] = []
@@ -260,7 +288,10 @@ export function registerIpc(): void {
       if (!proxy) throw new Error(`no such proxy: ${id}`)
 
       // Runs outside the mutation so a slow probe never holds the pool open.
-      const verification = await verifyProxy(proxy)
+      const verification = await verifyProxy(proxy, {
+        username: proxy.username,
+        password: decryptSecret(proxy.passwordEnc)
+      })
 
       await mutateProxies((proxies) =>
         proxies.map((p) => (p.id === id ? { ...p, lastVerification: verification } : p))

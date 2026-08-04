@@ -25,6 +25,10 @@ export type AddProxyInput = {
   label?: string
   country?: string
   expiresAt?: string | null
+  /** Chrome cannot authenticate to a proxy; a local relay adds these upstream. */
+  username?: string | null
+  /** Clear only in transit — encrypted with the OS keystore before it is stored. */
+  password?: string | null
 }
 
 /**
@@ -66,7 +70,12 @@ export type BoilerApi = {
   /** Vendors deliver lists; accepts pasted "host:port" lines. */
   addProxyBatch: (
     text: string,
-    defaults: { country?: string; expiresAt?: string | null }
+    defaults: {
+      country?: string
+      expiresAt?: string | null
+      username?: string | null
+      password?: string | null
+    }
   ) => Promise<Result<{ added: Proxy[]; skipped: string[] }>>
   removeProxy: (id: string) => Promise<Result<null>>
   verifyProxy: (id: string) => Promise<Result<Verification>>

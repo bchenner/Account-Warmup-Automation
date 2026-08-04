@@ -12,8 +12,9 @@ import {
   type Persona,
   type Profile
 } from '@shared/schemas'
-import { getDataRoot, loadProxyPool } from './store'
+import { decryptSecret, getDataRoot, loadProxyPool } from './store'
 import { resolveEgressIp } from './proxy-verify'
+import { startRelay, type RelayHandle } from './relay'
 
 const personasRoot = (): string => join(getDataRoot(), 'personas')
 const personaDir = (slug: string): string => join(personasRoot(), slug)
@@ -126,7 +127,10 @@ export async function listAccounts(personaSlug: string, id: string): Promise<Acc
 
 /** The user-data-dir is tracked alongside the child because it, not the pid, is
  * what reliably identifies the browser process at shutdown. */
-const running = new Map<string, { child: ChildProcess; userDataDir: string }>()
+const running = new Map<
+  string,
+  { child: ChildProcess; userDataDir: string; relay?: RelayHandle }
+>()
 
 export function isRunning(profileId: string): boolean {
   return running.has(profileId)
@@ -208,6 +212,7 @@ export async function launchProfile(
 
   let proxyArg: string | null = null
   let egressIp: string | null = null
+  let relay: RelayHandle | undefined
 
   if (profile.proxyId) {
     const pool = await loadProxyPool()
@@ -220,7 +225,10 @@ export async function launchProfile(
     // Fail-closed pre-flight. If this throws, nothing launches — the browser
     // must never fall back to the real IP.
     try {
-      egressIp = await resolveEgressIp(proxy)
+      egressIp = await resolveEgressIp(proxy, {
+        username: proxy.username,
+        password: decryptSecret(proxy.passwordEnc)
+      })
     } catch (err) {
       throw new Error(`proxy pre-flight failed, refusing to open: ${(err as Error).message}`)
     }
@@ -232,7 +240,27 @@ export async function launchProfile(
       )
     }
 
-    proxyArg = `http://${proxy.host}:${proxy.port}`
+    // Chrome cannot authenticate to a proxy, so a credentialed upstream is
+    // reached through a loopback relay that adds the header. Verified against
+    // a live proxy: the TLS fingerprint is identical through the relay, so the
+    // genuine ClientHello survives.
+    const password = decryptSecret(proxy.passwordEnc)
+    if (proxy.username && !password) {
+      throw new Error(
+        `${proxy.id} has a username but its stored password could not be decrypted — re-enter it`
+      )
+    }
+    if (proxy.username && password) {
+      relay = await startRelay({
+        host: proxy.host,
+        port: proxy.port,
+        username: proxy.username,
+        password
+      })
+      proxyArg = `http://127.0.0.1:${relay.port}`
+    } else {
+      proxyArg = `http://${proxy.host}:${proxy.port}`
+    }
   } else if (!profile.allowDirect) {
     throw new Error(
       'no proxy assigned. Assign one, or explicitly enable direct connection on this profile if you accept exposing your real IP.'
@@ -277,8 +305,13 @@ export async function launchProfile(
     env: { ...process.env, TZ: profile.fingerprint.timezone }
   })
 
-  running.set(profile.id, { child, userDataDir })
-  child.on('exit', () => running.delete(profile.id))
+  running.set(profile.id, { child, userDataDir, relay })
+  child.on('exit', () => {
+    // The relay exists only for this browser; leaving it listening would keep
+    // an authenticated proxy open on loopback.
+    void running.get(profile.id)?.relay?.close()
+    running.delete(profile.id)
+  })
 
   await saveProfile({ ...profile, lastUsedAt: new Date().toISOString() })
   return { egressIp, direct: !proxyArg }

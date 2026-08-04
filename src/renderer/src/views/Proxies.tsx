@@ -99,8 +99,9 @@ function Empty(): JSX.Element {
       <p className="text-sm text-neutral-400">No proxies yet.</p>
       <p className="mx-auto mt-2 max-w-md text-xs text-neutral-500">
         Buy Proxy-Seller <span className="text-neutral-300">ISP</span> proxies — not Mobile, not
-        Residential (rotating), not IPv4 datacenter — in the US, with IP-whitelist auth over
-        HTTP(S). Then paste the <code className="text-neutral-300">host:port</code> list here.
+        Residential (rotating), not IPv4 datacenter. Then paste the{' '}
+        <code className="text-neutral-300">host:port</code> list here, with the username and
+        password if the proxy uses them.
       </p>
     </div>
   )
@@ -116,6 +117,8 @@ function AddForm({
   const [text, setText] = useState('')
   const [country, setCountry] = useState('US')
   const [expiresAt, setExpiresAt] = useState('')
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
   const [pending, setPending] = useState(false)
   const [skipped, setSkipped] = useState<string[]>([])
 
@@ -124,7 +127,9 @@ function AddForm({
     setSkipped([])
     const res = await window.boiler.addProxyBatch(text, {
       country: country.toUpperCase(),
-      expiresAt: expiresAt || null
+      expiresAt: expiresAt || null,
+      username: username.trim() || null,
+      password: password || null
     })
     setPending(false)
     if (!res.ok) {
@@ -150,8 +155,34 @@ function AddForm({
         className="w-full rounded-lg border border-surface-border bg-surface-primary p-2 font-mono text-xs text-neutral-200 outline-none focus:border-neutral-600"
       />
       <p className="mt-1 text-xxs text-neutral-500">
-        Vendor lines with credentials appended are accepted, but the credentials are dropped —
-        Chrome ignores proxy credentials entirely, so auth is by IP whitelist.
+        Vendor formats with credentials on the line are accepted too —
+        <code> user:pass@host:port</code> and <code> host:port:user:pass</code>.
+      </p>
+
+      <div className="mt-3 grid grid-cols-2 gap-3">
+        <Field label="Proxy username">
+          <input
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            placeholder="if the proxy needs auth"
+            spellCheck={false}
+            className="w-full rounded-lg border border-surface-border bg-surface-primary px-2 py-1 text-sm text-neutral-200 outline-none placeholder:text-neutral-700 focus:border-neutral-600"
+          />
+        </Field>
+        <Field label="Proxy password">
+          <input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            spellCheck={false}
+            className="w-full rounded-lg border border-surface-border bg-surface-primary px-2 py-1 text-sm text-neutral-200 outline-none focus:border-neutral-600"
+          />
+        </Field>
+      </div>
+      <p className="mt-1 text-xxs text-neutral-500">
+        Chrome cannot authenticate to a proxy, so credentialed ones are reached through a local
+        relay that adds the header. The password is encrypted with the OS keystore before it is
+        stored, and never written in clear.
       </p>
 
       <div className="mt-3 flex flex-wrap items-end gap-3">

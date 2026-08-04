@@ -19,10 +19,16 @@ const TLS_URL = 'https://tls.peet.ws/api/all'
 
 type Json = Record<string, unknown>
 
-function proxyDispatcher(p: Pick<Proxy, 'host' | 'port'>): ProxyAgent {
+export type ProxyCreds = { username?: string | null; password?: string | null }
+
+function proxyDispatcher(p: Pick<Proxy, 'host' | 'port'>, creds?: ProxyCreds): ProxyAgent {
   // HTTP CONNECT tunnelling — the proxy forwards encrypted bytes without
   // opening them, which is exactly what preserves the genuine ClientHello.
-  return new ProxyAgent({ uri: `http://${p.host}:${p.port}` })
+  const auth =
+    creds?.username && creds.password
+      ? `${encodeURIComponent(creds.username)}:${encodeURIComponent(creds.password)}@`
+      : ''
+  return new ProxyAgent({ uri: `http://${auth}${p.host}:${p.port}` })
 }
 
 async function getJson(url: string, dispatcher?: ProxyAgent | Agent): Promise<Json> {
@@ -50,14 +56,17 @@ function splitOrg(org: string | null): { asn: string | null; org: string | null 
  * (renewal is when this happens) and the profile must not open on a stranger's
  * IP. Returns the observed IP so the caller can compare and report both.
  */
-export async function resolveEgressIp(p: Pick<Proxy, 'host' | 'port'>): Promise<string> {
-  const info = await getJson(IPINFO_URL, proxyDispatcher(p))
+export async function resolveEgressIp(
+  p: Pick<Proxy, 'host' | 'port'>,
+  creds?: ProxyCreds
+): Promise<string> {
+  const info = await getJson(IPINFO_URL, proxyDispatcher(p, creds))
   const ip = str(info.ip)
   if (!ip) throw new Error('proxy responded but reported no egress IP')
   return ip
 }
 
-async function checkTls(p: Proxy): Promise<TlsCheck> {
+async function checkTls(p: Proxy, creds?: ProxyCreds): Promise<TlsCheck> {
   // Same client both times, so any difference in the reported fingerprint is
   // the proxy re-encrypting rather than tunnelling.
   const read = async (dispatcher?: ProxyAgent): Promise<string | null> => {
@@ -66,7 +75,7 @@ async function checkTls(p: Proxy): Promise<TlsCheck> {
     return str(tls?.ja3_hash) ?? str(tls?.ja3) ?? null
   }
 
-  const [direct, proxied] = await Promise.allSettled([read(), read(proxyDispatcher(p))])
+  const [direct, proxied] = await Promise.allSettled([read(), read(proxyDispatcher(p, creds))])
   const directJa3 = direct.status === 'fulfilled' ? direct.value : null
   const proxiedJa3 = proxied.status === 'fulfilled' ? proxied.value : null
 
@@ -78,7 +87,7 @@ async function checkTls(p: Proxy): Promise<TlsCheck> {
   }
 }
 
-export async function verifyProxy(p: Proxy): Promise<Verification> {
+export async function verifyProxy(p: Proxy, creds?: ProxyCreds): Promise<Verification> {
   const problems: string[] = []
   let egressIp: string | null = null
   let country: string | null = null
@@ -91,7 +100,7 @@ export async function verifyProxy(p: Proxy): Promise<Verification> {
 
   // 1. Egress IP + 2. geo, in one call through the proxy.
   try {
-    const info = await getJson(IPINFO_URL, proxyDispatcher(p))
+    const info = await getJson(IPINFO_URL, proxyDispatcher(p, creds))
     egressIp = str(info.ip)
     country = str(info.country)
     region = str(info.region)
@@ -137,7 +146,7 @@ export async function verifyProxy(p: Proxy): Promise<Verification> {
 
   // 4. TLS — the check that decides whether the whole fingerprint layer works.
   try {
-    tls = await checkTls(p)
+    tls = await checkTls(p, creds)
     if (tls.matches === false) {
       problems.push(
         'TLS fingerprint differs through this proxy — it is decrypting and re-encrypting (MITM). Do not assign it.'

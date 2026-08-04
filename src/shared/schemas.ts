@@ -61,8 +61,19 @@ export const ProxySchema = z.object({
   id: z.string().min(1),
   host: z.string().min(1),
   port: z.number().int().min(1).max(65535),
-  /** IP-whitelist auth is the working combination; Chrome ignores proxy credentials. */
   label: z.string().default(''),
+  /**
+   * Chrome cannot authenticate to a proxy, so credentialed upstreams are
+   * reached through a local relay that adds the header (see main/relay.ts).
+   *
+   * This is the one secret the app stores, and it is unavoidable — a proxy
+   * with password auth is unusable otherwise. The password is encrypted at
+   * rest with Electron safeStorage (DPAPI on Windows), never written in clear.
+   * Social account credentials remain deliberately unstored.
+   */
+  username: z.string().nullable().default(null),
+  /** safeStorage ciphertext, base64. Never the password itself. */
+  passwordEnc: z.string().nullable().default(null),
   /** What was purchased — compared against what the geo lookup actually reports. */
   country: CountrySchema.default('US'),
   /** Rental expiry: when a silent IP change is most likely. */
