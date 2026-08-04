@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { activeWindowFor, formatWhen, nextInRun, planRun, restDaysFor } from './schedule'
+import {
+  activeWindowFor,
+  formatWhen,
+  nextInRun,
+  planRun,
+  restDaysFor,
+  runAnchor
+} from './schedule'
 
 const START = new Date('2026-08-10T09:00:00').getTime()
 const run = (accountId: string, days: number, level = 'observe', programmeLength = 14) =>
@@ -135,6 +142,39 @@ describe('run scheduling', () => {
     expect(third?.kind).toBe('active')
     expect(third?.sessionIndex).toBe(3)
     expect(nextInRun(s, 999)).toBeNull()
+  })
+
+  describe('anchoring day 1 against sessions already run', () => {
+    const now = new Date('2026-08-10T20:00:00')
+    const day = (iso: string): number => new Date(iso).getDate()
+
+    it('starts today when the account has never run', () => {
+      expect(day(runAnchor(null, now))).toBe(10)
+    })
+
+    it('starts today when the last session was long enough ago', () => {
+      expect(day(runAnchor('2026-08-09T04:00:00', now))).toBe(10)
+    })
+
+    it('starts tomorrow when the account already ran today', () => {
+      // The normal operator flow is: sign in, run one session by hand to check
+      // it works, then start the run. planRun's 14h minimum only applies
+      // between entries OF the run, so without this the first scheduled
+      // session can land hours after the manual one.
+      expect(day(runAnchor('2026-08-10T09:02:54.077Z', now))).toBe(11)
+      expect(day(runAnchor('2026-08-10T19:30:00', now))).toBe(11)
+    })
+
+    it('treats an unparseable timestamp as "start now" rather than throwing', () => {
+      expect(day(runAnchor('not a date', now))).toBe(10)
+    })
+
+    it('rolls the month over correctly', () => {
+      const eom = new Date('2026-08-31T20:00:00')
+      const next = new Date(runAnchor('2026-08-31T19:00:00', eom))
+      expect(next.getMonth()).toBe(8)
+      expect(next.getDate()).toBe(1)
+    })
   })
 
   it('formats the wait in units a person reads', () => {

@@ -191,3 +191,29 @@ export function formatWhen(at: number, now: number): string {
   const d = Math.floor(hours / 24)
   return d === 1 ? 'tomorrow' : `in ${d} days`
 }
+
+/**
+ * Where day 1 of a run is anchored, as an ISO string.
+ *
+ * Normally now. But `planRun` only enforces its 14-hour minimum gap BETWEEN
+ * entries of the run — it knows nothing about sessions that already happened.
+ * So starting a run on a day the account has already been driven by hand can
+ * schedule a second session hours later, which is the exact burst the rest of
+ * this module exists to prevent.
+ *
+ * That is not a hypothetical ordering. "Sign in, run one session to check it
+ * works, then start the run" is the normal way an operator uses this, and a
+ * three-day programme is almost always started right after that first manual
+ * session.
+ *
+ * When the account ran recently, day 1 moves to tomorrow. A run that starts a
+ * day late costs a day; two sessions in one evening costs the account.
+ */
+export function runAnchor(lastSessionAt: string | null, now = new Date()): string {
+  if (!lastSessionAt) return now.toISOString()
+  const last = new Date(lastSessionAt).getTime()
+  if (!Number.isFinite(last) || now.getTime() - last >= 14 * 3600_000) return now.toISOString()
+  const tomorrow = new Date(now)
+  tomorrow.setDate(tomorrow.getDate() + 1)
+  return tomorrow.toISOString()
+}

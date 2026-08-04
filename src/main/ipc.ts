@@ -19,7 +19,7 @@ import {
   type Proxy
 } from '@shared/schemas'
 import { formatEstimate, nextDueAt } from '@shared/session'
-import { activeWindowFor, nextInRun, planRun } from '@shared/schedule'
+import { activeWindowFor, nextInRun, planRun, runAnchor } from '@shared/schedule'
 import {
   encryptSecret,
   decryptSecret,
@@ -458,7 +458,7 @@ export function registerIpc(): void {
           runDays = patch.runDays
           // Starting a run re-bases the clock. Clearing it stops the schedule
           // without touching the progress already made.
-          runStartedAt = patch.runDays ? new Date().toISOString() : null
+          runStartedAt = patch.runDays ? runAnchor(account.lastSessionAt) : null
         }
 
         await saveAccount(personaSlug, profileId, {

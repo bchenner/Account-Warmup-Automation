@@ -211,10 +211,20 @@ export const AccountSchema = z.object({
   platform: z.enum(PLATFORMS),
   profileId: z.string().min(1),
   /**
-   * Defaults to the most cautious level. An account whose level was never
-   * chosen should do the least, not the most.
+   * Defaults to `quick` — three days, about half an hour a day.
+   *
+   * This is NOT the most cautious level; `observe` is, and it used to be the
+   * default on the reasoning that an unconfigured account should do the least.
+   * That reasoning turned out to be measuring the wrong thing. `observe` and
+   * `quick` carry the same total contact time (~90 min); `observe` merely
+   * spreads it over two weeks. Defaulting to it did not make an account safer,
+   * it made it slower for no return, and every operator was going to override
+   * it anyway.
+   *
+   * The levels that genuinely trade time for safety are still one click away,
+   * and each one says in its own file when it is the right choice.
    */
-  level: LevelSchema.default('observe'),
+  level: LevelSchema.default('quick'),
   /** Absent until the operator registers the account inside the profile. */
   username: z.string().nullable().default(null),
   registered: z.boolean().default(false),
