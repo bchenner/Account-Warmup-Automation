@@ -156,8 +156,18 @@ const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms
  * declarations in a `__name` helper — which does not exist inside the browser,
  * so the evaluate throws `__name is not defined` at runtime and nowhere else.
  */
-async function readItems(page: Page, sel: SelectorSet): Promise<Item[]> {
+async function readItems(page: Page, sel: SelectorSet, step: string): Promise<Item[]> {
   const f = sel.feed
+  // A feed with nothing in it means the post selector is wrong, or the page is
+  // not the feed at all — a checkpoint, a login wall, or a layout that never
+  // rendered. Every one of those makes the rest of the session meaningless, and
+  // a session that scrolls an empty page for two minutes and reports "completed"
+  // is worse than one that fails: it advances the account's counter as though
+  // something happened. Measured on a real account, where a wrong `post`
+  // selector produced seen=0 and a completed session.
+  if ((await page.locator(f.post).count()) === 0) {
+    throw new SelectorMiss(`feed.post (${f.post}) matched nothing`, step)
+  }
   return page.$$eval(
     f.post,
     (nodes, s) =>
@@ -180,6 +190,29 @@ async function readItems(page: Page, sel: SelectorSet): Promise<Item[]> {
         // every account claims once and then blocks for all the others.
         // Deriving it from the content instead identifies the post by what it
         // is, which is what the registry actually means.
+        // The platforms' "See translation" affordance has no stable attribute
+        // to hook, so text is genuinely the only handle for it — but this runs
+        // through querySelector, which is CSS only. Playwright's `text=` engine
+        // does not exist in here, and passing one through threw "not a valid
+        // selector" and aborted the whole session. Matched by hand instead.
+        //
+        // Written inline rather than as a helper on purpose: bundlers with
+        // keepNames wrap named inner functions in a `__name` shim that does not
+        // exist in the page.
+        let translated = false
+        if (s.translationPrompt) {
+          if (s.translationPrompt.startsWith('text=')) {
+            const wanted = s.translationPrompt.slice(5).trim().toLowerCase()
+            const all = n.querySelectorAll('*')
+            for (let i = 0; i < all.length && !translated; i++) {
+              const t = (all[i].textContent || '').trim().toLowerCase()
+              if (t && t.length < 200 && t.includes(wanted)) translated = true
+            }
+          } else {
+            translated = !!n.querySelector(s.translationPrompt)
+          }
+        }
+
         const author = n.getAttribute(s.authorAttribute) || ''
         const declaredId = n.getAttribute(s.postIdAttribute)
         let derived = ''
@@ -197,7 +230,7 @@ async function readItems(page: Page, sel: SelectorSet): Promise<Item[]> {
           caption,
           hashtags: (rawTags.match(/#[\w]+/g) || []).map((t: string) => t.slice(1)),
           hasVideo: s.video ? !!n.querySelector(s.video) : false,
-          hasTranslationPrompt: s.translationPrompt ? !!n.querySelector(s.translationPrompt) : false,
+          hasTranslationPrompt: translated,
           comments
         }
       }),
@@ -323,7 +356,7 @@ async function runStep(page: Page, step: Step, env: StepEnv): Promise<StepReport
         await sleep(s.pauseMs)
         bursts++
       }
-      const items = await readItems(page, sel)
+      const items = await readItems(page, sel, step.action)
       env.harvest(items)
       return {
         action: step.action,
@@ -335,7 +368,7 @@ async function runStep(page: Page, step: Step, env: StepEnv): Promise<StepReport
 
     case 'watch_videos': {
       const want = countFor(step.count ?? [3, 8], mood, rng)
-      const items = (await readItems(page, sel)).filter((i) => i.hasVideo)
+      const items = (await readItems(page, sel, step.action)).filter((i) => i.hasVideo)
       env.harvest(items)
       let watched = 0
       let liked = 0
@@ -376,7 +409,7 @@ async function runStep(page: Page, step: Step, env: StepEnv): Promise<StepReport
     case 'like': {
       if (!sel.feed.likeButton) throw new SelectorMiss('feed.likeButton', 'like')
       const want = countFor(step.count ?? [2, 6], mood, rng)
-      const items = await readItems(page, sel)
+      const items = await readItems(page, sel, step.action)
       env.harvest(items)
       let liked = 0
 
@@ -406,7 +439,7 @@ async function runStep(page: Page, step: Step, env: StepEnv): Promise<StepReport
       const box = sel.feed.commentInput
       if (!box) throw new SelectorMiss('feed.commentInput', 'comment')
       const want = countFor(step.count ?? [1, 2], mood, rng)
-      const items = await readItems(page, sel)
+      const items = await readItems(page, sel, step.action)
       env.harvest(items)
       let posted = 0
 
@@ -501,7 +534,7 @@ async function runStep(page: Page, step: Step, env: StepEnv): Promise<StepReport
     case 'follow': {
       if (!sel.feed.followButton) throw new SelectorMiss('feed.followButton', 'follow')
       const want = countFor(step.count ?? [4, 8], mood, rng)
-      const items = await readItems(page, sel)
+      const items = await readItems(page, sel, step.action)
       env.harvest(items)
       let followed = 0
       let skipped = 0
@@ -740,7 +773,7 @@ async function runStep(page: Page, step: Step, env: StepEnv): Promise<StepReport
     case 'visit_profiles': {
       if (!sel.feed.authorLink) throw new SelectorMiss('feed.authorLink', 'visit_profiles')
       const want = countFor(step.count ?? [2, 5], mood, rng)
-      const items = await readItems(page, sel)
+      const items = await readItems(page, sel, step.action)
       let visited = 0
 
       for (const item of shuffle(items, rng)) {

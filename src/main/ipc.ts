@@ -36,6 +36,9 @@ import {
   getAccount,
   managedHandles,
   isRunning,
+  isSessionRunning,
+  markSessionEnd,
+  markSessionStart,
   launchProfile,
   listAccounts,
   listPersonas,
@@ -387,6 +390,9 @@ export function registerIpc(): void {
     guard(async () => {
       const [profile] = (await listProfiles()).filter((p) => p.id === profileId)
       if (!profile) throw new Error(`no such profile: ${profileId}`)
+      if (isSessionRunning(profileId)) {
+        throw new Error('a warmup session is already running on this profile')
+      }
       if (isRunning(profileId)) {
         throw new Error('this profile is open — close it before running a session')
       }
@@ -411,18 +417,27 @@ export function registerIpc(): void {
       const claimedPosts = new Set(registry.claimedPosts)
       const usedComments = [...registry.usedComments]
 
-      const outcome = await runWarmupSession({
-        profile,
-        persona,
-        account,
-        managedHandles: await managedHandles(),
-        followedTargets,
-        friendedTargets,
-        joinedGroups,
-        usedComments,
-        usedSources,
-        claimedPosts
-      })
+      // Marked for the whole run, and cleared even if it throws — a profile
+      // left flagged busy could never be opened or warmed again without a
+      // restart.
+      markSessionStart(profileId)
+      let outcome
+      try {
+        outcome = await runWarmupSession({
+          profile,
+          persona,
+          account,
+          managedHandles: await managedHandles(),
+          followedTargets,
+          friendedTargets,
+          joinedGroups,
+          usedComments,
+          usedSources,
+          claimedPosts
+        })
+      } finally {
+        markSessionEnd(profileId)
+      }
 
       // The fleet registry records what actually happened, whether or not the
       // session finished — a follow that landed is in the graph regardless.

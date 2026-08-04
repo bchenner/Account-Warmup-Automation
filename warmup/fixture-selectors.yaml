@@ -11,7 +11,7 @@ feed:
   caption: '[data-caption]'
   hashtags: '[data-hashtags]'
   video: 'video'
-  translationPrompt: '[data-translate]'
+  translationPrompt: 'text=See translation'
   likeButton: 'button[data-like]'
   followButton: 'button[data-follow]'
   authorLink: 'a[data-author-link]'

@@ -223,12 +223,37 @@ async function overrideTimezone(
   return browser
 }
 
+/**
+ * Profiles with a warmup session in flight.
+ *
+ * A session launches Chrome through patchright rather than launchProfile, so
+ * it never appears in `running` — which left nothing stopping a second session,
+ * or a manual Open, from pointing a second Chrome at the same user-data-dir.
+ * Chrome refuses that ("Opening in existing browser session") and the launch
+ * dies, so the collision has to be caught before it happens rather than
+ * surfaced as a browser error.
+ */
+const sessionBusy = new Set<string>()
+
+export function markSessionStart(profileId: string): void {
+  sessionBusy.add(profileId)
+}
+
+export function markSessionEnd(profileId: string): void {
+  sessionBusy.delete(profileId)
+}
+
+export function isSessionRunning(profileId: string): boolean {
+  return sessionBusy.has(profileId)
+}
+
+/** True if ANYTHING currently owns this profile's user-data-dir. */
 export function isRunning(profileId: string): boolean {
-  return running.has(profileId)
+  return running.has(profileId) || sessionBusy.has(profileId)
 }
 
 export function runningIds(): string[] {
-  return [...running.keys()]
+  return [...new Set([...running.keys(), ...sessionBusy])]
 }
 
 /** Real Chrome, not Chromium — the fingerprint we present should be a real one. */
