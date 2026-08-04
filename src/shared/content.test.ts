@@ -8,7 +8,7 @@ import {
   withPersonality,
   type TasteProfile
 } from './content'
-import { NICHES, NICHE_KEYS, otherNiches, type NicheKey } from './niches'
+import { NICHES, NICHE_KEYS, coerceNiche, otherNiches, searchTermsFor, type NicheKey } from './niches'
 import { makeRng } from './human'
 
 const maya: TasteProfile = {
@@ -281,5 +281,42 @@ describe('watch plans', () => {
       Array.from({ length: 400 }, (_, i) => watchPlan(onTopic, taste, { likeRate: r }, makeRng(`k${r}${i}`)))
         .filter((p) => p.like).length / 400
     expect(rate(0.1)).toBeLessThan(rate(0.6))
+  })
+})
+
+describe('niche coercion', () => {
+  it('accepts every key unchanged', () => {
+    for (const k of NICHE_KEYS) expect(coerceNiche(k), k).toBe(k)
+  })
+
+  it('normalises the shapes free text actually produced', () => {
+    // These are real values that were sitting in persona files: a spaced
+    // label, a synonym, and the display label as typed.
+    expect(coerceNiche('home fitness')).toBe('home-fitness')
+    expect(coerceNiche('fitness')).toBe('home-fitness')
+    expect(coerceNiche('Home fitness')).toBe('home-fitness')
+    expect(coerceNiche('  COOKING  ')).toBe('cooking')
+    expect(coerceNiche('home_diy')).toBe('home-diy')
+  })
+
+  it('returns null rather than guessing, so the caller can fail loudly', () => {
+    // The old behaviour silently ran a fitness profile for all of these.
+    for (const junk of ['234', 'wadwa', '', 'crypto', null, undefined, 42]) {
+      expect(coerceNiche(junk), String(junk)).toBeNull()
+    }
+  })
+
+  it('gives search terms a person would type', () => {
+    for (const k of NICHE_KEYS) {
+      const terms = searchTermsFor(k)
+      expect(terms.length, k).toBeGreaterThan(2)
+      for (const t of terms) {
+        // The niche KEY is not a query — "home-fitness" typed into Instagram
+        // finds nothing. A term that happens to equal a single-word key, like
+        // "cooking", is fine; a kebab-case compound is not.
+        expect(t, `${k}: "${t}" is a key, not a query`).not.toContain('-')
+        expect(t.trim(), `${k}: empty term`).not.toBe('')
+      }
+    }
   })
 })

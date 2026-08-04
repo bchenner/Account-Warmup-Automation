@@ -29,10 +29,10 @@ import { BACKGROUND_ARGS } from '../src/main/profiles.ts'
 
 const ROOT = path.resolve(import.meta.dirname, '..')
 const selectors = SelectorSetSchema.parse(
-  parse(readFileSync(path.join(ROOT, 'scripts/selectors/fixture.yaml'), 'utf8'))
+  parse(readFileSync(path.join(ROOT, 'warmup/fixture-selectors.yaml'), 'utf8'))
 )
 const script = ScriptSchema.parse(
-  parse(readFileSync(path.join(ROOT, 'scripts/instagram.yaml'), 'utf8'))
+  parse(readFileSync(path.join(ROOT, 'warmup/instagram/establish.yaml'), 'utf8'))
 )
 
 const ACCOUNT = 'maya-instagram'

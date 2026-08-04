@@ -12,15 +12,68 @@ import type { TasteProfile } from './content'
 
 const SPAM_BAIT = ['crypto', 'casino', 'betting', 'forex', 'onlyfans', 'giveaway', 'dm me']
 
-export type NicheKey =
-  | 'home-fitness'
-  | 'cooking'
-  | 'travel'
-  | 'tech'
-  | 'fashion'
-  | 'gaming'
-  | 'pets'
-  | 'home-diy'
+export const NICHE_KEYS = [
+  'home-fitness',
+  'cooking',
+  'travel',
+  'tech',
+  'fashion',
+  'gaming',
+  'pets',
+  'home-diy'
+] as const
+export type NicheKey = (typeof NICHE_KEYS)[number]
+
+/** What people actually typed when the niche was a free-text box. */
+const ALIASES: Record<string, NicheKey> = {
+  fitness: 'home-fitness',
+  gym: 'home-fitness',
+  workout: 'home-fitness',
+  'home-gym': 'home-fitness',
+  food: 'cooking',
+  baking: 'cooking',
+  recipes: 'cooking',
+  technology: 'tech',
+  gadgets: 'tech',
+  style: 'fashion',
+  clothing: 'fashion',
+  gamer: 'gaming',
+  animals: 'pets',
+  dogs: 'pets',
+  cats: 'pets',
+  diy: 'home-diy',
+  'home-improvement': 'home-diy'
+}
+
+/**
+ * Coerces a stored niche to a valid key.
+ *
+ * The niche used to be free text, so records exist carrying "home fitness",
+ * "fitness", or the persona's own name. Those silently missed the lookup and
+ * ran a fitness taste profile without saying so. Now that the field is a fixed
+ * list this only has to migrate old records: near-misses and the obvious
+ * synonyms are normalised, and anything genuinely unrecognised returns null so
+ * the caller fails loudly rather than guessing on the operator's behalf.
+ */
+export function coerceNiche(value: unknown): NicheKey | null {
+  if (typeof value !== 'string') return null
+  const slug = value.trim().toLowerCase().replace(/[\s_]+/g, '-')
+  if ((NICHE_KEYS as readonly string[]).includes(slug)) return slug as NicheKey
+  if (slug in ALIASES) return ALIASES[slug]
+  // The label as typed, e.g. "Home fitness" -> "home-fitness".
+  const byLabel = NICHE_KEYS.find(
+    (k) => NICHES[k].label.toLowerCase().replace(/[\s_]+/g, '-') === slug
+  )
+  return byLabel ?? null
+}
+
+/** The terms a scripted search actually types. The key itself is not one. */
+export function searchTermsFor(niche: NicheKey, limit = 6): string[] {
+  return Object.entries(NICHES[niche].taste.interests)
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, limit)
+    .map(([term]) => term)
+}
 
 export const NICHES: Record<NicheKey, { label: string; taste: TasteProfile }> = {
   'home-fitness': {
@@ -129,8 +182,6 @@ export const NICHES: Record<NicheKey, { label: string; taste: TasteProfile }> = 
     }
   }
 }
-
-export const NICHE_KEYS = Object.keys(NICHES) as NicheKey[]
 
 /** Niches other than this one — the pool a persona's curiosity draws from. */
 export function otherNiches(key: NicheKey): NicheKey[] {

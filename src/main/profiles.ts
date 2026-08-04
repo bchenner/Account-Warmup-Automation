@@ -5,6 +5,7 @@ import { join, dirname } from 'node:path'
 import { spawn, type ChildProcess } from 'node:child_process'
 import { chromium, type Browser, type CDPSession, type Page } from 'patchright'
 import { parse, stringify } from 'yaml'
+import { ZodError } from 'zod'
 import {
   AccountSchema,
   PersonaSchema,
@@ -49,7 +50,17 @@ export async function listPersonas(): Promise<Persona[]> {
   for (const slug of await listDirs(personasRoot())) {
     const file = join(personaDir(slug), 'persona.yaml')
     if (!existsSync(file)) continue
-    out.push(PersonaSchema.parse(await readYaml(file)))
+    // Still fails rather than half-loading — but an opaque zod error gives the
+    // operator nothing to act on, and this is a file they can open and fix.
+    try {
+      out.push(PersonaSchema.parse(await readYaml(file)))
+    } catch (err) {
+      const detail =
+        err instanceof ZodError
+          ? err.issues.map((i) => `${i.path.join('.') || '(root)'}: ${i.message}`).join('; ')
+          : (err as Error).message
+      throw new Error(`${file} is not a valid persona — ${detail}`)
+    }
   }
   return out
 }

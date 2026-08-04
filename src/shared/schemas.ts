@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { NICHE_KEYS, coerceNiche } from './niches'
 
 // Data lives in YAML on disk (no database), so these schemas ARE the schema.
 // Everything is validated at load; a malformed file fails loudly rather than
@@ -103,8 +104,18 @@ export type ProxyPool = z.infer<typeof ProxyPoolSchema>
 export const PersonaSchema = z.object({
   slug: z.string().regex(/^[a-z0-9-]+$/, 'slug must be kebab-case'),
   displayName: z.string().min(1),
-  /** Drives follow-target search. Deterministic input to a scripted search. */
-  niche: z.string().min(1),
+  /**
+   * One of a fixed list, not free text. It selects the taste profile that
+   * decides what the account engages with, so a value outside the list has no
+   * meaning — it used to fall through to a fitness profile without saying so.
+   * Old free-text records are normalised on read where possible.
+   */
+  niche: z.preprocess(
+    (v) => coerceNiche(v) ?? v,
+    z.enum(NICHE_KEYS, {
+      errorMap: () => ({ message: `niche must be one of: ${NICHE_KEYS.join(', ')}` })
+    })
+  ),
   country: CountrySchema.default('US'),
   bio: z.string().default(''),
   avatarPath: z.string().nullable().default(null)
@@ -152,7 +163,7 @@ export type ProfileRow = Profile & {
   proxyLabel: string | null
   proxyVerified: boolean
   running: boolean
-  accounts: { platform: Platform; username: string | null; health: Health }[]
+  accounts: { platform: Platform; username: string | null; health: Health; level: Level }[]
 }
 
 /** Set by in-session detection only. Cleared by the operator, never automatically. */
@@ -167,9 +178,30 @@ export const HealthSchema = z.enum([
 ])
 export type Health = z.infer<typeof HealthSchema>
 
+/**
+ * How much this account is allowed to do, in ascending order of risk. Each
+ * level is a separate programme file; the level IS the ceiling, so an action a
+ * level disallows is absent from its file rather than merely rare.
+ *
+ * observe   — consumption only. No writes at all.
+ * light     — consumption plus likes.
+ * standard  — the full ramp: likes, then follows, then comments.
+ * establish — standard plus building the profile. New accounts ONLY: it edits
+ *             the username, bio and avatar, which on an aged account is the
+ *             strongest account-takeover signal there is.
+ */
+export const LEVELS = ['observe', 'light', 'standard', 'establish'] as const
+export const LevelSchema = z.enum(LEVELS)
+export type Level = z.infer<typeof LevelSchema>
+
 export const AccountSchema = z.object({
   platform: z.enum(PLATFORMS),
   profileId: z.string().min(1),
+  /**
+   * Defaults to the most cautious level. An account whose level was never
+   * chosen should do the least, not the most.
+   */
+  level: LevelSchema.default('observe'),
   /** Absent until the operator registers the account inside the profile. */
   username: z.string().nullable().default(null),
   registered: z.boolean().default(false),

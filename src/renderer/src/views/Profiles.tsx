@@ -1,6 +1,16 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { CreateProfileInput, SessionPlanView, SessionRunResult } from '@shared/ipc'
-import type { Profile, ProfileRow, Proxy } from '@shared/schemas'
+import { LEVELS, type Level, type Profile, type ProfileRow, type Proxy } from '@shared/schemas'
+import { NICHES, NICHE_KEYS } from '@shared/niches'
+
+/** Shown on hover. The level IS the ceiling — see warmup/instagram/*.yaml. */
+const LEVEL_HINTS: Record<Level, string> = {
+  observe: 'Consumption only — watches and scrolls, never likes, follows or comments.',
+  light: 'Consumption plus likes. No follows, no comments.',
+  standard: 'Full ramp for an aged account: likes, then follows, then comments. Never edits the profile.',
+  establish:
+    'For an account you registered yourself. Builds the profile (username, bio, avatar) — never run this on an aged account.'
+}
 
 export default function Profiles(): JSX.Element {
   const [rows, setRows] = useState<ProfileRow[]>([])
@@ -432,7 +442,7 @@ function ProxyPill({ row }: { row: ProfileRow }): JSX.Element {
 const DEFAULTS: CreateProfileInput = {
   personaName: '',
   name: '',
-  niche: '',
+  niche: NICHE_KEYS[0],
   country: 'US',
   proxyId: null,
   allowDirect: false,
@@ -478,8 +488,22 @@ function CreateForm({
         <Field label="Persona" hint="grouping; reused across this persona's profiles">
           <Input value={form.personaName} onChange={(v) => set('personaName', v)} placeholder="Maya" />
         </Field>
-        <Field label="Niche" hint="drives follow-target search during warmup">
-          <Input value={form.niche} onChange={(v) => set('niche', v)} placeholder="home fitness" />
+        {/* A fixed list, not free text. The niche selects the taste profile
+            that decides what this account likes, follows and searches for, so
+            a value outside the list has no meaning — it used to fall through
+            to a fitness profile silently. */}
+        <Field label="Niche" hint="what this persona engages with, and searches for">
+          <select
+            value={form.niche}
+            onChange={(e) => set('niche', e.target.value)}
+            className="w-full rounded-lg border border-surface-border bg-surface-primary px-2 py-1.5 text-sm text-neutral-200 outline-none focus:border-neutral-600"
+          >
+            {NICHE_KEYS.map((k) => (
+              <option key={k} value={k}>
+                {NICHES[k].label}
+              </option>
+            ))}
+          </select>
         </Field>
         <Field label="Country" hint="drives timezone, locale and geolocation">
           <Input value={form.country} onChange={(v) => set('country', v.toUpperCase())} />
@@ -718,6 +742,15 @@ function AccountRow({
     void loadPlan()
   }
 
+  const setLevel = async (level: string): Promise<void> => {
+    const res = await window.boiler.updateAccount(row.personaSlug, row.id, account.platform, {
+      level: level as Level
+    })
+    if (!res.ok) return onError(res.error)
+    onChanged()
+    void loadPlan()
+  }
+
   const remove = async (): Promise<void> => {
     const res = await window.boiler.removeAccount(row.personaSlug, row.id, account.platform)
     if (!res.ok) onError(res.error)
@@ -758,10 +791,25 @@ function AccountRow({
           <span className="font-mono text-xxs text-neutral-400">{account.username}</span>
         )}
 
+        <select
+          value={account.level}
+          onChange={(e) => void setLevel(e.target.value)}
+          title={LEVEL_HINTS[account.level]}
+          className="rounded-md border border-surface-border bg-surface-secondary px-1.5 py-1 text-xxs text-neutral-300 outline-none focus:border-neutral-600"
+        >
+          {LEVELS.map((l) => (
+            <option key={l} value={l}>
+              {l}
+            </option>
+          ))}
+        </select>
+
         <div className="ml-auto flex items-center gap-2">
           {registered && plan && (
             <span className="text-xxs text-neutral-500">
-              {plan.next ? `session ${plan.next}/${plan.total} · ${plan.estimate}` : 'warmed'}
+              {plan.next
+                ? `${plan.level} · session ${plan.next}/${plan.total} · ${plan.estimate}`
+                : `${plan.level} complete`}
             </span>
           )}
           {registered && plan?.next && (

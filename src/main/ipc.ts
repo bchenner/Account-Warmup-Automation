@@ -6,10 +6,12 @@ import {
   type CreateProfileInput,
   type Result
 } from '@shared/ipc'
+import { NICHE_KEYS, coerceNiche } from '@shared/niches'
 import {
   ProfileSchema,
   ProxySchema,
   type Account,
+  type Level,
   type Profile,
   type ProfileRow,
   type Proxy
@@ -141,7 +143,8 @@ async function toRow(profile: Profile): Promise<ProfileRow> {
     accounts: accounts.map((a) => ({
       platform: a.platform,
       username: a.username,
-      health: a.health
+      health: a.health,
+      level: a.level
     }))
   }
 }
@@ -166,12 +169,20 @@ export function registerIpc(): void {
       const slug = slugify(input.personaName)
       if (!slug) throw new Error('persona name must contain at least one letter or digit')
 
+      // The UI offers a fixed list, but the IPC boundary is not the UI — an
+      // unrecognised niche has to fail here rather than be quietly swapped for
+      // a taste profile nobody chose.
+      const niche = coerceNiche(input.niche)
+      if (!niche) {
+        throw new Error(`niche must be one of: ${NICHE_KEYS.join(', ')}`)
+      }
+
       const personas = await listPersonas()
       if (!personas.some((p) => p.slug === slug)) {
         await upsertPersona({
           slug,
           displayName: input.personaName,
-          niche: input.niche,
+          niche,
           country: input.country.toUpperCase(),
           bio: '',
           avatarPath: null
@@ -284,6 +295,10 @@ export function registerIpc(): void {
       await saveAccount(input.personaSlug, input.profileId, {
         platform: input.platform,
         profileId: input.profileId,
+        // Defaults to the most cautious level rather than the one that fits a
+        // brand-new account, because guessing wrong in that direction edits
+        // the profile of an aged account.
+        level: input.level ?? 'observe',
         username: null,
         registered: false,
         sessionCounter: 0,
@@ -302,7 +317,12 @@ export function registerIpc(): void {
       personaSlug: string,
       profileId: string,
       platform: string,
-      patch: { username?: string | null; registered?: boolean; health?: string }
+      patch: {
+        username?: string | null
+        registered?: boolean
+        health?: string
+        level?: Level
+      }
     ) =>
       guard(async () => {
         const account = await getAccount(personaSlug, profileId, platform)
@@ -310,8 +330,23 @@ export function registerIpc(): void {
         if (patch.registered && !(patch.username ?? account.username)) {
           throw new Error('enter the username you registered before marking it registered')
         }
+
+        // Levels are separate programmes, not stages of one. Session 8 of
+        // `standard` has nothing to do with session 8 of `observe`, so carrying
+        // the counter across would drop the account straight into follows it
+        // never ramped up to. Changing level starts that programme at one.
+        const level = patch.level ?? account.level
+        const movedLevel = level !== account.level
+        if (movedLevel && account.level === 'establish' && account.sessionCounter > 0) {
+          throw new Error(
+            'this account is part-way through building its profile — finish `establish` or remove and re-add the account'
+          )
+        }
+
         await saveAccount(personaSlug, profileId, {
           ...account,
+          level,
+          sessionCounter: movedLevel ? 0 : account.sessionCounter,
           username: patch.username !== undefined ? patch.username : account.username,
           registered: patch.registered ?? account.registered,
           health: (patch.health as Account['health']) ?? account.health
@@ -334,12 +369,13 @@ export function registerIpc(): void {
       const account = await getAccount(personaSlug, profileId, platform)
       if (!account) throw new Error(`no ${platform} account on this profile`)
       const accountId = `${profileId}:${platform}`
-      const plan = await loadPlan(platform, accountId)
+      const plan = await loadPlan(platform, account.level, accountId)
       const next = plan[account.sessionCounter]
       return {
         total: plan.length,
+        level: account.level,
         next: next?.index ?? null,
-        label: next?.label ?? 'warmed — the script is finished',
+        label: next?.label ?? `finished "${account.level}" — move up a level to continue`,
         kind: next?.kind ?? 'active',
         estimate: next ? formatEstimate(next.estimateMs) : '',
         dueAt: nextDueAt(account.lastSessionAt, accountId, account.sessionCounter + 1)

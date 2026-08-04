@@ -7,9 +7,9 @@ import { app } from 'electron'
 import { ScriptSchema, planSessions, type PlannedSession } from '@shared/session'
 import { SelectorSetSchema } from '@shared/selectors'
 import { withPersonality } from '@shared/content'
-import { NICHES, type NicheKey } from '@shared/niches'
+import { NICHES, NICHE_KEYS, coerceNiche, searchTermsFor } from '@shared/niches'
 import { emojiHabitFor } from '@shared/emoji'
-import type { Account, Persona, Profile } from '@shared/schemas'
+import type { Account, Level, Persona, Profile } from '@shared/schemas'
 import { runSession, type SessionReport } from './runner'
 import { BACKGROUND_ARGS, chromeDir, findChrome } from './profiles'
 import { decryptSecret, loadProxyPool } from './store'
@@ -25,10 +25,14 @@ import { startRelay, type RelayHandle } from './relay'
  * recorded progress runs ahead of what actually happened to it.
  */
 
-/** Scripts and selectors ship with the app rather than living in user data. */
+/**
+ * Warmup programmes and selectors ship with the app as data, not as code —
+ * the operator never runs them, and never sees them. They are files rather
+ * than constants so a retune or a selector fix is an edit, not a rebuild.
+ */
 function assetDir(): string {
-  const packaged = join(process.resourcesPath ?? '', 'scripts')
-  return existsSync(packaged) ? packaged : join(app.getAppPath(), 'scripts')
+  const packaged = join(process.resourcesPath ?? '', 'warmup')
+  return existsSync(packaged) ? packaged : join(app.getAppPath(), 'warmup')
 }
 
 async function readYaml(path: string): Promise<unknown> {
@@ -37,11 +41,18 @@ async function readYaml(path: string): Promise<unknown> {
 
 export async function loadPlan(
   platform: string,
+  level: Level,
   accountId: string
 ): Promise<PlannedSession[]> {
-  const file = join(assetDir(), `${platform}.yaml`)
-  if (!existsSync(file)) throw new Error(`no warmup script for ${platform} (expected ${file})`)
-  return planSessions(ScriptSchema.parse(await readYaml(file)), accountId)
+  const file = join(assetDir(), platform, `${level}.yaml`)
+  if (!existsSync(file)) {
+    throw new Error(`no "${level}" warmup programme for ${platform} (expected ${file})`)
+  }
+  const script = ScriptSchema.parse(await readYaml(file))
+  if (script.platform !== platform) {
+    throw new Error(`${file} declares platform "${script.platform}" but sits under ${platform}`)
+  }
+  return planSessions(script, accountId)
 }
 
 export type SessionOutcome = SessionReport & {
@@ -63,15 +74,15 @@ export async function runWarmupSession(args: {
   const { profile, persona, account } = args
   const accountId = `${profile.id}:${account.platform}`
 
-  const plan = await loadPlan(account.platform, accountId)
+  const plan = await loadPlan(account.platform, account.level, accountId)
   const session = plan[account.sessionCounter]
   if (!session) {
     throw new Error(
-      `${account.platform} is already warmed — the script has ${plan.length} sessions and this account has completed all of them`
+      `this account has finished the "${account.level}" programme (${plan.length} sessions) — move it to the next level to continue`
     )
   }
 
-  const selectorFile = join(assetDir(), 'selectors', `${account.platform}.yaml`)
+  const selectorFile = join(assetDir(), account.platform, 'selectors.yaml')
   if (!existsSync(selectorFile)) throw new Error(`no selector set for ${account.platform}`)
   const selectors = SelectorSetSchema.parse(await readYaml(selectorFile))
 
@@ -107,7 +118,17 @@ export async function runWarmupSession(args: {
     throw new Error('no proxy assigned — refusing to run a session on your real IP')
   }
 
-  const nicheKey = (persona.niche in NICHES ? persona.niche : 'home-fitness') as NicheKey
+  // No fallback. The niche selects the taste profile that decides what this
+  // account engages with, so quietly substituting one would have the account
+  // build an interest graph nobody chose. PersonaSchema already constrains
+  // this; if it is still wrong, the persona file is wrong and should say so.
+  const nicheKey = coerceNiche(persona.niche)
+  if (!nicheKey) {
+    throw new Error(
+      `persona "${persona.slug}" has niche "${persona.niche}", which is not one of: ${NICHE_KEYS.join(', ')}`
+    )
+  }
+
   let ctx: BrowserContext | undefined
 
   try {
@@ -149,7 +170,9 @@ export async function runWarmupSession(args: {
       emoji: emojiHabitFor(persona.slug),
       niche: nicheKey,
       selectors,
-      searchTerms: persona.niche.split(/\s+/).filter(Boolean),
+      // The niche KEY is not a search query — typing "home-fitness" into
+      // Instagram finds nothing. Search the niche's own weighted interests.
+      searchTerms: searchTermsFor(nicheKey),
       corpus: [],
       usedComments: args.usedComments,
       usedSources: args.usedSources,

@@ -1,0 +1,54 @@
+# LEVEL 2 — Light. Consumption plus likes. Nothing else.
+#
+# The first level that writes anything. A like is the cheapest public action
+# available: it creates no text, no new follow edge, and no content anyone has
+# to be shown. If an account is going to be challenged for acting at all, this
+# is where you would rather find out.
+#
+# Deliberately absent:
+#   - follow          — creates a permanent graph edge; that is level 3
+#   - comment         — public text, and the classic spam vector; level 3
+#   - profile_mutation — never on an aged account, at any level
+#
+# Likes start at session 6, not session 1, so there is still a consumption-only
+# runway inside this level for an account arriving from `observe` on a fresh
+# ramp.
+
+platform: instagram
+version: '2026.08-light-a'
+length: 14
+
+rest:
+  count: [2, 3]
+  window: [4, 13]
+  minGap: 2
+
+sessions:
+  - sessions: [1, 5]
+    label: Consumption only
+    steps:
+      - action: story_views
+        count: [8, 14]
+      - action: feed_scroll
+        seconds: [120, 300]
+      - action: watch_videos
+        count: [3, 8]
+      - action: search
+        skipChance: 0.4
+
+  - sessions: [6, 14]
+    label: First likes — a few, on what the feed already shows
+    steps:
+      - action: story_views
+        count: [8, 15]
+      - action: feed_scroll
+        seconds: [150, 320]
+      - action: watch_videos
+        count: [4, 9]
+      # Small counts, and the runner only likes posts that pass the niche and
+      # English filters — so a session often lands under this number rather
+      # than at it. That is intended: a fixed nightly total is a pattern.
+      - action: like
+        count: [1, 4]
+      - action: search
+        skipChance: 0.35

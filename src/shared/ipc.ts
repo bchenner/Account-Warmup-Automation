@@ -1,4 +1,4 @@
-import type { Persona, Profile, ProfileRow, Proxy, Verification } from './schemas'
+import type { Level, Persona, Profile, ProfileRow, Proxy, Verification } from './schemas'
 
 /** Channel names shared by main and preload so neither drifts from the other. */
 export const CH = {
@@ -64,11 +64,15 @@ export type AddAccountInput = {
   personaSlug: string
   profileId: string
   platform: 'facebook' | 'instagram' | 'threads'
+  /** Omitted means the most cautious level, never the most permissive one. */
+  level?: Level
 }
 
 /** What the UI shows for an account's warmup progress. */
 export type SessionPlanView = {
   total: number
+  /** Which programme the totals and labels below belong to. */
+  level: Level
   /** 1-based index of the session that runs next, or null when finished. */
   next: number | null
   label: string
@@ -100,7 +104,7 @@ export type BoilerApi = {
     personaSlug: string,
     profileId: string,
     platform: string,
-    patch: { username?: string | null; registered?: boolean; health?: string }
+    patch: { username?: string | null; registered?: boolean; health?: string; level?: Level }
   ) => Promise<Result<null>>
   removeAccount: (personaSlug: string, profileId: string, platform: string) => Promise<Result<null>>
   sessionPlan: (

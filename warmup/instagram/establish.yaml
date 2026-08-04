@@ -1,4 +1,13 @@
-# Instagram warmup — one session per day.
+# LEVEL 4 — Establish. For an account YOU registered, on the IP it will live on.
+#
+# The only programme that mutates the profile, because it is the only one whose
+# account arrives without one. Username, display name, bio, avatar and first
+# photo are set on separate days rather than in one sitting, since a profile
+# that goes from empty to complete in a single session is a tell.
+#
+# Do NOT run this on an aged or purchased account. It already has all of these
+# fields, and rewriting them is the strongest account-takeover signal there is.
+# Use `standard` for those.
 #
 # Shape follows the 18-day BHW/ToyBox schedule, the most engineering-usable
 # artifact in the practitioner corpus: consumption first, profile completion
@@ -12,7 +21,7 @@
 # account so two accounts never rest on the same days.
 
 platform: instagram
-version: '2026.08-a'
+version: '2026.08-establish-a'
 length: 18
 
 # minGap stops rest days clumping (which reads as an abandoned account) but
@@ -104,7 +113,7 @@ sessions:
         seconds: [90, 200]
 
   - sessions: [17, 18]
-    label: Settling — steady low activity
+    label: Settling — steady low activity, first comments
     steps:
       - action: feed_scroll
         seconds: [120, 280]
@@ -112,6 +121,12 @@ sessions:
         count: [4, 9]
       - action: like
         count: [2, 5]
+      # Last action type to appear, on an account that by now has two weeks of
+      # history. Gated again by the runner: a quarter of accounts never comment,
+      # and the rest only on a small fraction of posts.
+      - action: comment
+        count: [1, 2]
+        skipChance: 0.5
       - action: follow
         count: [4, 8]
         skipChance: 0.25

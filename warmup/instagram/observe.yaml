@@ -1,0 +1,52 @@
+# LEVEL 1 — Observe. Consumption only, no writes of any kind.
+#
+# For an account that must not act yet: one just signed in after a long
+# dormancy, one that hit a login checkpoint, or one whose posts stopped being
+# distributed. Watching reels and reading the feed is what a returning user
+# does, and it is close to zero risk — it creates no public artifact, no new
+# graph edge, and nothing another account can see.
+#
+# The write actions are absent rather than rare. A level whose ceiling is
+# "no writes" has to have no writes in it, or it is not a ceiling.
+#
+# Nothing here mutates the profile. Editing the photo, name or bio on a
+# dormant account that has just reappeared from a new country is the single
+# strongest account-takeover signal, and it is exactly what an aged account
+# never needs, because it already has all of them.
+#
+# When this finishes, move the account to `light` — it does not loop.
+
+platform: instagram
+version: '2026.08-observe-a'
+length: 14
+
+rest:
+  count: [2, 3]
+  window: [4, 13]
+  minGap: 2
+
+sessions:
+  - sessions: [1, 4]
+    label: Short passive sessions — just looking
+    steps:
+      - action: story_views
+        count: [5, 10]
+      - action: feed_scroll
+        seconds: [90, 180]
+      - action: watch_videos
+        count: [2, 5]
+
+  - sessions: [5, 14]
+    label: Settling in — longer passive sessions
+    steps:
+      - action: story_views
+        count: [8, 15]
+      - action: feed_scroll
+        seconds: [150, 320]
+      - action: watch_videos
+        count: [4, 9]
+      # Search is a read, but it is a deliberate one — an account that only
+      # ever scrolls the feed it was given looks less like a person than one
+      # that occasionally goes looking for something.
+      - action: search
+        skipChance: 0.4

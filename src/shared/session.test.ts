@@ -8,13 +8,100 @@ import {
   nextDueAt,
   planSessions,
   restSessionsFor,
-  ScriptSchema
+  ScriptSchema,
+  type Script
 } from './session'
 import { makeRng } from './human'
 
-const script = ScriptSchema.parse(
-  parse(readFileSync(join(process.cwd(), 'scripts/instagram.yaml'), 'utf8'))
-)
+const load = (level: string): Script =>
+  ScriptSchema.parse(
+    parse(readFileSync(join(process.cwd(), `warmup/instagram/${level}.yaml`), 'utf8'))
+  )
+
+const script = load('establish')
+
+/**
+ * A level is a CEILING, not a suggestion. If `observe` is defined as "no
+ * writes" then a write action must be absent from the file, because a rare
+ * action still happens. These assertions are what make the level names mean
+ * something — without them the difference between levels is a comment.
+ */
+describe('engagement levels are ceilings', () => {
+  const actionsIn = (level: string): Set<string> =>
+    new Set(planSessions(load(level), 'maya-instagram').flatMap((s) => s.steps.map((t) => t.action)))
+
+  const WRITES = ['like', 'follow', 'comment', 'profile_mutation']
+
+  it('observe never writes at all', () => {
+    const actions = actionsIn('observe')
+    for (const w of WRITES) expect([...actions], `observe contains ${w}`).not.toContain(w)
+  })
+
+  it('light likes, but never follows, comments or edits the profile', () => {
+    const actions = actionsIn('light')
+    expect([...actions]).toContain('like')
+    for (const w of ['follow', 'comment', 'profile_mutation']) {
+      expect([...actions], `light contains ${w}`).not.toContain(w)
+    }
+  })
+
+  it('standard does everything except touch the profile', () => {
+    const actions = actionsIn('standard')
+    for (const w of ['like', 'follow', 'comment']) expect([...actions]).toContain(w)
+    // The whole reason this level exists: an aged account already HAS a
+    // username, bio and avatar, and rewriting them reads as a stolen account.
+    expect([...actions], 'standard must never mutate an aged profile').not.toContain(
+      'profile_mutation'
+    )
+  })
+
+  it('establish is the only level that builds a profile', () => {
+    expect([...actionsIn('establish')]).toContain('profile_mutation')
+  })
+
+  const firstOf = (level: string, action: string): number =>
+    planSessions(load(level), 'maya-instagram').findIndex((s) =>
+      s.steps.some((t) => t.action === action)
+    )
+
+  it('comments are the last write to appear, at every level that has them', () => {
+    for (const level of ['light', 'standard', 'establish']) {
+      const comment = firstOf(level, 'comment')
+      if (comment < 0) continue // the level never comments, which is allowed
+      for (const earlier of ['like', 'follow']) {
+        const at = firstOf(level, earlier)
+        if (at >= 0) expect(at, `${level}: ${earlier} before comment`).toBeLessThan(comment)
+      }
+    }
+  })
+
+  it('likes precede follows on an account that already has a feed', () => {
+    // But NOT on `establish`. A brand-new account's feed is empty, so it has
+    // to follow someone before there is anything to like — following first is
+    // the only order that produces a feed at all. On an aged account the feed
+    // already exists, so the cheaper action comes first.
+    for (const level of ['light', 'standard']) {
+      const like = firstOf(level, 'like')
+      const follow = firstOf(level, 'follow')
+      if (like >= 0 && follow >= 0) {
+        expect(like, `${level}: like before follow`).toBeLessThan(follow)
+      }
+    }
+    expect(firstOf('establish', 'follow')).toBeLessThan(firstOf('establish', 'like'))
+  })
+
+  it('every level is loadable and covers all of its sessions', () => {
+    for (const level of ['observe', 'light', 'standard', 'establish']) {
+      const s = load(level)
+      expect(s.platform, level).toBe('instagram')
+      const plan = planSessions(s, 'maya-instagram')
+      expect(plan, level).toHaveLength(s.length)
+      for (const session of plan) {
+        expect(session.steps.length, `${level} session ${session.index}`).toBeGreaterThan(0)
+      }
+    }
+  })
+})
 
 describe('the shipped Instagram script', () => {
   it('validates against the schema', () => {

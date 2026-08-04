@@ -1,0 +1,94 @@
+# LEVEL 3 — Standard. The full engagement ramp for an AGED account.
+#
+# Likes, then follows, then comments, in that order, because that is their
+# order of risk: a like is invisible, a follow is a permanent graph edge, and a
+# comment is public text that sits under someone else's post.
+#
+# This is the aged-account counterpart to `establish`. The difference is not
+# the pacing — it is that this programme never touches the profile. An account
+# that already has a username, display name, bio and avatar does not need them
+# built, and changing them is the thing that reads as a stolen account.
+#
+# Longer than the fresh-account programme (21 vs 18) despite doing less,
+# because an aged account arriving here has usually come through `observe` or
+# `light` after a checkpoint, and has less margin than a clean new account.
+#
+# ⚠️ Every number is practitioner consensus with no platform backing, and
+# vendors disagree by ~3x. Starting shape, not a threshold.
+
+platform: instagram
+version: '2026.08-standard-a'
+length: 21
+
+rest:
+  count: [3, 4]
+  window: [5, 20]
+  minGap: 2
+
+sessions:
+  - sessions: [1, 4]
+    label: Consumption only — re-establishing a rhythm
+    steps:
+      - action: story_views
+        count: [8, 14]
+      - action: feed_scroll
+        seconds: [120, 300]
+      - action: watch_videos
+        count: [3, 8]
+      - action: search
+        skipChance: 0.4
+
+  - sessions: [5, 9]
+    label: Likes only
+    steps:
+      - action: story_views
+        count: [8, 15]
+      - action: feed_scroll
+        seconds: [150, 320]
+      - action: watch_videos
+        count: [4, 9]
+      - action: like
+        count: [1, 4]
+      - action: search
+        skipChance: 0.35
+
+  - sessions: [10, 15]
+    label: First follows
+    steps:
+      - action: feed_scroll
+        seconds: [150, 320]
+      - action: watch_videos
+        count: [4, 10]
+      - action: like
+        count: [2, 6]
+      - action: search
+        skipChance: 0.3
+      # Looking at a profile before following it is what a person does, and
+      # the runner will not follow an account already in the fleet graph.
+      - action: visit_profiles
+        count: [2, 4]
+        skipChance: 0.3
+      - action: follow
+        count: [2, 4]
+
+  - sessions: [16, 21]
+    label: Comments enter — sparse, and never on every post
+    steps:
+      - action: feed_scroll
+        seconds: [150, 300]
+      - action: watch_videos
+        count: [4, 9]
+      - action: like
+        count: [2, 6]
+      # One or two at most, and the runner gates this further: a quarter of
+      # accounts never comment at all, and the rest do so on a small fraction
+      # of posts. An account that comments every session is a pattern.
+      - action: comment
+        count: [1, 2]
+        skipChance: 0.45
+      - action: follow
+        count: [3, 5]
+        skipChance: 0.2
+      - action: visit_profiles
+        count: [2, 5]
+        skipChance: 0.35
