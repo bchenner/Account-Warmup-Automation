@@ -157,31 +157,15 @@ export function findChrome(): string | null {
 
 export type LaunchResult = { egressIp: string | null; direct: boolean }
 
-/**
- * Seed a new profile so Chrome reopens the tabs that were open last time.
- *
- * The profile directory is already fully persistent — cookies, logins and
- * history survive because it is a real user-data-dir, not an incognito
- * session. Tabs are the exception: Chrome's default startup is the new tab
- * page, so "continue where you left off" has to be set explicitly.
- *
- * Only ever written when absent. Overwriting Preferences on an established
- * profile would discard settings Chrome has since accumulated.
- */
-async function seedPreferences(userDataDir: string): Promise<void> {
-  const prefsPath = join(userDataDir, 'Default', 'Preferences')
-  if (existsSync(prefsPath)) return
-  await mkdir(dirname(prefsPath), { recursive: true })
-  await writeFile(
-    prefsPath,
-    JSON.stringify({
-      // 1 = restore the last session. (4 = specific pages, 5 = new tab page.)
-      session: { restore_on_startup: 1 },
-      profile: { exit_type: 'Normal', exited_cleanly: true }
-    }),
-    'utf8'
-  )
-}
+// Tab restore is handled by the --restore-last-session launch flag, not by
+// editing Preferences.
+//
+// `session.restore_on_startup` is a PROTECTED preference on Windows: Chrome
+// HMAC-validates it against Secure Preferences, so writing it by hand reads
+// back correctly once and is then silently reset to the default on the next
+// launch. Measured, not assumed — the value came back empty after a second
+// run. The flag achieves the same thing per launch, needs no tampering, and
+// applies to profiles created before this existed.
 
 export async function launchProfile(profile: Profile): Promise<LaunchResult> {
   if (isRunning(profile.id)) throw new Error('this profile is already open')
@@ -224,13 +208,15 @@ export async function launchProfile(profile: Profile): Promise<LaunchResult> {
 
   const userDataDir = chromeDir(profile.personaSlug, profile.id)
   await mkdir(userDataDir, { recursive: true })
-  await seedPreferences(userDataDir)
 
   const args = [
     `--user-data-dir=${userDataDir}`,
     // A real monitor-shaped window. Playwright's 1280x720 default is not one.
     `--window-size=${profile.fingerprint.windowWidth},${profile.fingerprint.windowHeight}`,
     `--lang=${profile.fingerprint.locale}`,
+    // Reopen whatever was open when the profile was last closed. Harmless on a
+    // profile's first ever launch, when there is no previous session.
+    '--restore-last-session',
     '--no-first-run',
     '--no-default-browser-check',
     // Deliberately absent: --user-agent. It does not update

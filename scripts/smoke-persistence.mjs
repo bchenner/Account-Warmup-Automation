@@ -49,14 +49,16 @@ const dataDir = (await page.evaluate(() => window.boiler.dataDir())).value
 const chromeDir = path.join(dataDir, 'personas', slug, 'profiles', profileId, 'chrome')
 const prefsPath = path.join(chromeDir, 'Default', 'Preferences')
 
-const prefs = JSON.parse(fs.readFileSync(prefsPath, 'utf8'))
-const restore = prefs.session?.restore_on_startup
-console.log('restore_on_startup:', restore, '(1 = continue where you left off)')
-if (restore !== 1) fail.push(`restore_on_startup is ${restore}, expected 1`)
+// Tab restore is covered behaviourally by smoke-tabrestore.mjs. It is NOT
+// asserted here as a preference value: session.restore_on_startup is a
+// protected pref that Chrome resets if written by hand, so the launcher uses
+// the --restore-last-session flag instead.
 
 // A persistent profile keeps these on disk; an incognito session has no store
 // at all. Modern Chrome keeps cookies under Default/Network/, not Default/.
-for (const f of ['Network/Cookies', 'Local Storage', 'History', 'Preferences']) {
+// Preferences is deliberately not in this list: Chrome writes it on exit, so
+// mid-run absence is expected. The post-close read below proves it exists.
+for (const f of ['Network/Cookies', 'Local Storage', 'History']) {
   const p = path.join(chromeDir, 'Default', ...f.split('/'))
   const found = fs.existsSync(p)
   console.log(`${f}:`, found ? 'present' : 'ABSENT')
