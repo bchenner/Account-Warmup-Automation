@@ -1,0 +1,22 @@
+# Selector set for the local test fixture (scripts/fixture-feed.html).
+#
+# Exists so the runner can be proven end-to-end against a page we control,
+# before it is ever pointed at a real account. Same runner code, different data.
+platform: fixture
+version: '1'
+
+feed:
+  url: fixture
+  post: '[data-post-id]'
+  caption: '[data-caption]'
+  hashtags: '[data-hashtags]'
+  video: 'video'
+  translationPrompt: '[data-translate]'
+  likeButton: 'button[data-like]'
+  commentInput: 'input[data-comment-input]'
+  commentText: '[data-comment]'
+  postIdAttribute: 'data-post-id'
+
+search:
+  url: fixture
+  input: 'input[data-search]'

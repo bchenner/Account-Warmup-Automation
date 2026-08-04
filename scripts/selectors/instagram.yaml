@@ -1,0 +1,24 @@
+# Instagram selectors.
+#
+# ⚠️ UNVERIFIED against the live site. Written ARIA-first from Instagram's
+# documented accessible names, and NOT yet run against a real account — Meta
+# ships obfuscated, build-hashed class names, so these will need correcting the
+# first time a session is run for real. That is expected, and the reason
+# selectors live in data rather than in code.
+platform: instagram
+version: '2026.08-draft'
+
+feed:
+  url: https://www.instagram.com/
+  post: 'article'
+  caption: 'article h1, article [data-testid="post-comment-root"] span'
+  video: 'video'
+  translationPrompt: 'text=See translation'
+  likeButton: 'svg[aria-label="Like"]'
+  commentInput: 'textarea[aria-label="Add a comment…"]'
+  commentText: 'ul li span'
+  postIdAttribute: 'data-id'
+
+search:
+  url: https://www.instagram.com/explore/
+  input: 'input[aria-label="Search input"]'

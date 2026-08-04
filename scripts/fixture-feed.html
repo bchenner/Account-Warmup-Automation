@@ -1,0 +1,102 @@
+<!doctype html>
+<!--
+  A fake feed for proving the runner works before it is ever pointed at a real
+  account. Deliberately mixed: on-topic English, off-topic English, Spanish, a
+  post carrying a "See translation" affordance, and comments worth harvesting
+  alongside comments that must be rejected.
+
+  If the runner is behaving, it likes the on-topic English posts and leaves the
+  rest alone.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>fixture feed</title>
+    <style>
+      body { font: 15px/1.5 system-ui; margin: 0; background: #111; color: #eee; }
+      header { padding: 12px 16px; border-bottom: 1px solid #333; position: sticky; top: 0; background: #111; }
+      input { background: #1c1c1c; border: 1px solid #333; color: #eee; padding: 6px 10px; border-radius: 8px; width: 260px; }
+      article { border-bottom: 1px solid #262626; padding: 18px 16px; max-width: 620px; }
+      video { width: 100%; max-height: 260px; background: #000; border-radius: 8px; }
+      .cap { margin: 10px 0 4px; }
+      .tags { color: #7aa2f7; font-size: 13px; }
+      .translate { color: #9aa; font-size: 13px; cursor: pointer; }
+      button { background: #1c1c1c; border: 1px solid #333; color: #eee; border-radius: 8px; padding: 4px 10px; cursor: pointer; }
+      button[data-liked='1'] { background: #7a1f1f; border-color: #a33; }
+      .cmt { color: #aaa; font-size: 13px; margin-top: 6px; }
+      .spacer { height: 1400px; }
+    </style>
+  </head>
+  <body>
+    <header><input data-search placeholder="Search" /></header>
+    <main id="feed"></main>
+    <div class="spacer"></div>
+    <script>
+      // 15s of black video — enough for watch-fraction behaviour to be real.
+      const VIDEO =
+        'data:video/mp4;base64,AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDEAAAAIZnJlZQAAAr1tZGF0AAACrgYF//+q3EXpvebZSLeWLNgg2SPu73gyNjQgLSBjb3JlIDE2NCAtIEguMjY0L01QRUctNCBBVkMgY29kZWM='
+
+      const POSTS = [
+        { id: 'p1', cap: 'This is the home workout that I do when I have no time for the gym', tags: '#workout #fitness', video: true,
+          comments: ['This is really helpful, I have been doing it wrong for years', '🔥🔥🔥'] },
+        { id: 'p2', cap: 'Esta es la rutina de gimnasio que hago en casa para entrenar sin tiempo', tags: '#entrenamiento', video: true,
+          comments: ['Muy bueno, gracias por compartir esto conmigo'] },
+        { id: 'p3', cap: 'This is the sourdough starter that I have been feeding for the last month', tags: '#baking #bread', video: false,
+          comments: ['Great breakdown, the third one is the part I always skip'] },
+        { id: 'p4', cap: 'Three strength training moves that fixed my form, and the cues that made them click', tags: '#strength #training #gym', video: true,
+          comments: ['The form cues here are very useful, thanks for spelling them out', 'follow me for more content'] },
+        { id: 'p5', cap: 'A full body workout you can do at home with just one dumbbell and a chair', tags: '#workout #dumbbell', video: true,
+          comments: ['I tried this yesterday and it was harder than it looks honestly'] },
+        { id: 'p6', cap: 'My thoughts on the new season of that show everyone keeps talking about', tags: '#tv', video: true,
+          comments: ['Totally agree with everything you said here about the ending'] },
+        { id: 'p7', cap: 'Mobility work that actually helped my squat depth after years of stiffness', tags: '#mobility #squat #fitness', video: true,
+          comments: ['Been looking for something like this for ages, thank you'], translate: true },
+        { id: 'p8', cap: 'Quick protein breakfast before training, takes about four minutes to make', tags: '#protein #training', video: true,
+          comments: ['This is the kind of thing I actually needed to see today'] }
+      ]
+
+      document.getElementById('feed').innerHTML = POSTS.map((p) => `
+        <article data-post-id="${p.id}">
+          ${p.video ? `<video muted playsinline src="${VIDEO}"></video>` : ''}
+          <div class="cap" data-caption>${p.cap}</div>
+          <div class="tags" data-hashtags>${p.tags}</div>
+          ${p.translate ? '<div class="translate" data-translate>See translation</div>' : ''}
+          <div style="margin-top:8px"><button data-like>Like</button></div>
+          ${p.comments.map((c) => `<div class="cmt" data-comment>${c}</div>`).join('')}
+          <div><input data-comment-input placeholder="Add a comment…" /></div>
+        </article>`).join('')
+
+      // Record what the runner did INTO THE DOM, not onto window.
+      //
+      // patchright evaluates in an isolated world — that is its stealth
+      // feature, since main-world execution is something bot detectors probe
+      // for. Page globals are therefore invisible to the harness; the DOM is
+      // the only surface both sides share.
+      const liked = []
+      const commented = []
+      const sync = () => {
+        document.body.setAttribute('data-liked', JSON.stringify(liked))
+        document.body.setAttribute('data-commented', JSON.stringify(commented))
+      }
+      sync()
+
+      document.querySelectorAll('button[data-like]').forEach((b) => {
+        b.addEventListener('click', (e) => {
+          const id = e.target.closest('[data-post-id]').dataset.postId
+          e.target.dataset.liked = '1'
+          liked.push(id)
+          sync()
+        })
+      })
+      document.querySelectorAll('input[data-comment-input]').forEach((i) => {
+        i.addEventListener('keydown', (e) => {
+          if (e.key !== 'Enter') return
+          const id = e.target.closest('[data-post-id]').dataset.postId
+          commented.push({ id, text: e.target.value })
+          e.target.value = ''
+          sync()
+        })
+      })
+    </script>
+  </body>
+</html>
