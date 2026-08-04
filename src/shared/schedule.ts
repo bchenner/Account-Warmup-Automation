@@ -50,6 +50,21 @@ export function activeWindowFor(accountId: string): ActiveWindow {
 }
 
 /**
+ * Shortest run that gets a rest day at all.
+ *
+ * Below this, none. Skipping a day only reads as "busy" once there is a
+ * routine to interrupt — a person using an app three days running is entirely
+ * ordinary, and there is nothing yet for the gap to be a gap in.
+ *
+ * The cost of getting this wrong is not cosmetic. Rest days are placed from
+ * day 3 onward, so a floor of "at least one rest day" applied to a 3-day run
+ * always rested on day 3 — which quietly made it a 2-day run and dropped the
+ * final session of the programme entirely. On `quick` that is the only session
+ * that likes or follows anything.
+ */
+const MIN_DAYS_FOR_REST = 7
+
+/**
  * Which days of a run are rest days.
  *
  * Rate is per-account rather than fixed: some people use an app daily, others
@@ -58,6 +73,8 @@ export function activeWindowFor(accountId: string): ActiveWindow {
  * and abandoned.
  */
 export function restDaysFor(accountId: string, level: string, days: number): Set<number> {
+  if (days < MIN_DAYS_FOR_REST) return new Set()
+
   const rng = makeRng(`restdays:${accountId}:${level}:${days}`)
   const rate = uniform(0.12, 0.26, rng)
   const wanted = Math.min(Math.max(1, Math.round(days * rate)), Math.max(0, days - 2))

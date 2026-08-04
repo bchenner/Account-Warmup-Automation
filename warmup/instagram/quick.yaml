@@ -1,0 +1,66 @@
+# LEVEL — Quick. Three days, ~30 minutes a day, niche content.
+#
+# The Instagram mirror of facebook/quick.yaml; the reasoning is there in full.
+# In short: `observe` is 14 sessions of about six minutes and this is 3 of about
+# thirty, so the total contact time is the same and only the spread differs.
+#
+# Use for a fresh or healthy account about to start posting. Do NOT use it for
+# an account that hit a checkpoint, has just woken from a long dormancy, or has
+# a feed in the wrong language — the longer levels exist for those.
+#
+# Instagram differs from Facebook in one way that matters to a half-hour
+# session: stories are the surface a real user opens FIRST and burns time on
+# cheaply, so they lead every session here rather than being an optional extra.
+
+platform: instagram
+version: '2026.08-quick-a'
+length: 3
+
+sessions:
+  - sessions: [1, 1]
+    label: Day one — consumption only, nothing touched
+    steps:
+      - action: story_views
+        count: [8, 15]
+      - action: feed_scroll
+        seconds: [540, 840]
+      - action: explore
+        count: [2, 4]
+      - action: watch_videos
+        count: [5, 10]
+      - action: feed_scroll
+        seconds: [360, 600]
+
+  - sessions: [2, 2]
+    label: Day two — same, plus a few likes
+    steps:
+      - action: story_views
+        count: [8, 16]
+      - action: feed_scroll
+        seconds: [540, 840]
+      - action: explore
+        count: [3, 5]
+      - action: watch_videos
+        count: [6, 11]
+      - action: like
+        count: [2, 5]
+      - action: feed_scroll
+        seconds: [300, 570]
+
+  - sessions: [3, 3]
+    label: Day three — settled; a follow or two
+    steps:
+      - action: story_views
+        count: [8, 16]
+      - action: feed_scroll
+        seconds: [540, 840]
+      - action: explore
+        count: [3, 5]
+      - action: watch_videos
+        count: [6, 11]
+      - action: like
+        count: [3, 6]
+      - action: follow
+        count: [1, 2]
+      - action: feed_scroll
+        seconds: [300, 570]

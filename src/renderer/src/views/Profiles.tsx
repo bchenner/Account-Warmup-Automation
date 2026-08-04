@@ -5,6 +5,8 @@ import { NICHES, NICHE_KEYS } from '@shared/niches'
 
 /** Shown on hover. The level IS the ceiling — see warmup/instagram/*.yaml. */
 const LEVEL_HINTS: Record<Level, string> = {
+  quick:
+    'Three days, about half an hour a day of niche content. Same total time as Observe, concentrated. Start here for a healthy account — not for one that hit a checkpoint, woke from long dormancy, or has a feed in the wrong language.',
   observe: 'Consumption only — watches and scrolls, never likes, follows or comments.',
   reorient:
     'Searches in English and watches the results, to pull a feed that is in the wrong language toward the right one. Still writes nothing. Run this before warmup when the feed is not in English.',
@@ -730,7 +732,7 @@ function AccountRow({
   const [username, setUsername] = useState(account.username ?? '')
   const [plan, setPlan] = useState<SessionPlanView | null>(null)
   const [running, setRunning] = useState(false)
-  const [days, setDays] = useState('14')
+  const [days, setDays] = useState('')
   const [result, setResult] = useState<SessionRunResult | null>(null)
 
   const loadPlan = useCallback(async () => {
@@ -741,6 +743,16 @@ function AccountRow({
   useEffect(() => {
     if (account.username) void loadPlan()
   }, [account.username, loadPlan])
+
+  // Follow the chosen level's own length rather than a fixed 14. The run
+  // length and the programme length are different numbers on purpose — a run
+  // longer than its programme holds at the last session — but the programme's
+  // own length is the only sensible thing to OFFER, and `quick` is 3 days
+  // where `establish` is weeks. A hardcoded default silently turned a
+  // three-day schedule into a fortnight.
+  useEffect(() => {
+    if (plan && !plan.run) setDays(String(plan.total))
+  }, [plan?.total, plan?.level, plan?.run])
 
   const register = async (): Promise<void> => {
     const res = await window.boiler.updateAccount(row.personaSlug, row.id, account.platform, {
@@ -900,7 +912,7 @@ function AccountRow({
               />
               <span>days of {account.level}</span>
               <button
-                onClick={() => void startRun(Number(days) || 14)}
+                onClick={() => void startRun(Number(days) || plan.total)}
                 className="rounded-md border border-surface-border px-1.5 py-0.5 text-neutral-300 hover:bg-surface-tertiary"
               >
                 Start

@@ -183,6 +183,13 @@ export type Health = z.infer<typeof HealthSchema>
  * level is a separate programme file; the level IS the ceiling, so an action a
  * level disallows is absent from its file rather than merely rare.
  *
+ * quick     — three days, ~30 minutes a day. The mainstream schedule, and the
+ *             right default for a HEALTHY account that is going to post soon.
+ *             It is not a shortcut: it carries the same total contact time as
+ *             `observe` (about 90 minutes), just concentrated into three days
+ *             instead of spread over fourteen. Wrong for an account that hit a
+ *             checkpoint, woke from long dormancy, or has a foreign-language
+ *             feed — those need spread, not dose.
  * observe   — consumption only. No writes at all.
  * reorient  — searches in English and WATCHES what comes back, to drag a feed
  *             that is in the wrong language toward the right one. Still no
@@ -196,7 +203,7 @@ export type Health = z.infer<typeof HealthSchema>
  *             the username, bio and avatar, which on an aged account is the
  *             strongest account-takeover signal there is.
  */
-export const LEVELS = ['observe', 'reorient', 'light', 'standard', 'establish'] as const
+export const LEVELS = ['quick', 'observe', 'reorient', 'light', 'standard', 'establish'] as const
 export const LevelSchema = z.enum(LEVELS)
 export type Level = z.infer<typeof LevelSchema>
 

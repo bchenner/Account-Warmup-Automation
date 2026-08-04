@@ -1,0 +1,78 @@
+# LEVEL — Quick. Three days, ~30 minutes a day, niche content.
+#
+# This is the mainstream practitioner schedule, and it is here because the
+# arithmetic supports it. `observe` is 14 sessions of roughly six minutes, so
+# about 85 minutes of contact time. This is 3 sessions of roughly thirty, so
+# about 90. The DOSE is the same. The only thing that differs is whether it is
+# spread over two weeks or three days.
+#
+# Use this for a fresh or healthy account that is going to start posting soon.
+# It is the default starting point, not a shortcut.
+#
+# Do NOT use it for:
+#   - an account that hit a login checkpoint or CAPTCHA — that account has
+#     already been flagged, and compressing activity is the wrong direction
+#   - an account whose feed is in the wrong language — see reorient.yaml; the
+#     recommender does not turn in three days
+#   - an account that has just come back from a long dormancy
+# Those cases are why the longer levels still exist.
+#
+# No rest rule: three consecutive days is the whole point.
+#
+# The honest risk in this shape is the session LENGTH, not the run length.
+# Thirty unbroken minutes is longer than a median human session, so the steps
+# below are deliberately mixed — scroll, search, watch, back to the feed —
+# rather than one continuous scroll, and `search` uses the account's niche terms
+# so the half hour has a subject rather than being a treadmill.
+
+platform: facebook
+version: '2026.08-quick-a'
+length: 3
+
+sessions:
+  - sessions: [1, 1]
+    label: Day one — consumption only, nothing touched
+    steps:
+      - action: feed_scroll
+        seconds: [630, 900]
+      - action: explore
+        count: [2, 4]
+      - action: watch_videos
+        count: [4, 8]
+      - action: feed_scroll
+        seconds: [360, 630]
+
+  - sessions: [2, 2]
+    label: Day two — same, plus a few likes
+    steps:
+      - action: feed_scroll
+        seconds: [600, 930]
+      - action: explore
+        count: [3, 5]
+      - action: watch_videos
+        count: [5, 9]
+      # An account that consumes for ninety minutes and touches nothing at all
+      # is its own kind of anomaly. A handful of likes is what the half hour
+      # would produce if a person were doing it.
+      - action: like
+        count: [2, 5]
+      - action: feed_scroll
+        seconds: [300, 600]
+
+  - sessions: [3, 3]
+    label: Day three — settled; a Page follow or two
+    steps:
+      - action: feed_scroll
+        seconds: [600, 930]
+      - action: explore
+        count: [3, 5]
+      - action: watch_videos
+        count: [5, 9]
+      - action: like
+        count: [3, 6]
+      # Unidirectional and needs nobody's consent. It also gives the account a
+      # feed worth reading on day four, which is the point of the exercise.
+      - action: follow
+        count: [1, 2]
+      - action: feed_scroll
+        seconds: [300, 600]

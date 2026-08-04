@@ -73,6 +73,26 @@ describe('run scheduling', () => {
     }
   })
 
+  it('a short run never rests, so every session of it actually runs', () => {
+    // Regression. Rest days are placed from day 3 onward, and the old floor of
+    // "at least one" meant a 3-day run ALWAYS rested on day 3 — turning it into
+    // a 2-day run and silently dropping the programme's last session. `quick`
+    // is a 3-day programme whose final session is the only one that writes.
+    for (const id of ['maya-facebook', 'luis-facebook', 'ren-facebook', 'ada-facebook']) {
+      for (const days of [1, 2, 3, 4, 5, 6]) {
+        expect(restDaysFor(id, 'quick', days).size, `${id} ${days}d`).toBe(0)
+        const plan = planRun({
+          accountId: id,
+          level: 'quick',
+          startedAt: START,
+          days,
+          programmeLength: days
+        })
+        expect(plan.filter((e) => e.kind === 'active'), `${id} ${days}d`).toHaveLength(days)
+      }
+    }
+  })
+
   it('never rests two days back to back', () => {
     for (const id of ['maya-instagram', 'luis-facebook', 'ren-instagram', 'ada-facebook']) {
       const rest = [...restDaysFor(id, 'observe', 40)].sort((a, b) => a - b)

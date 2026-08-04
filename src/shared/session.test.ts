@@ -20,7 +20,7 @@ const load = (level: string, platform = 'instagram'): Script =>
 
 const script = load('establish')
 const PLATFORMS = ['instagram', 'facebook']
-const ALL_LEVELS = ['observe', 'reorient', 'light', 'standard', 'establish']
+const ALL_LEVELS = ['quick', 'observe', 'reorient', 'light', 'standard', 'establish']
 
 /**
  * A level is a CEILING, not a suggestion. If `observe` is defined as "no
@@ -47,6 +47,74 @@ describe('engagement levels are ceilings', () => {
       expect([...actions], platform).toContain('explore')
       for (const w of WRITES) {
         expect([...actions], `${platform}/reorient contains ${w}`).not.toContain(w)
+      }
+    }
+  })
+
+  it('quick is three consecutive days that never rest', () => {
+    // The entire premise is three days in a row. A rest day inside a 3-day run
+    // would silently make it a 2-day run.
+    for (const platform of PLATFORMS) {
+      const s = load('quick', platform)
+      expect(s.length, platform).toBe(3)
+      expect(restSessionsFor(s, 'maya-x').size, `${platform}/quick rests`).toBe(0)
+    }
+  })
+
+  it('quick carries the same total contact time as observe, concentrated', () => {
+    // This is the claim the level is justified by, so it is asserted rather
+    // than left in a comment: same dose, fewer days. If someone retunes the
+    // step budgets until quick becomes a genuine shortcut, this fails.
+    //
+    // Measured on estimateMs, not on the `seconds` fields — a step with no
+    // seconds still costs time (watching eight videos is not free), and
+    // counting only the scroll budgets would let quick be padded with cheap
+    // scrolls while doing far less.
+    const minutes = (level: string, platform: string): number =>
+      planSessions(load(level, platform), 'maya-x')
+        .filter((s) => s.kind === 'active')
+        .reduce((n, s) => n + (s.estimateMs[0] + s.estimateMs[1]) / 2, 0) / 60_000
+
+    for (const platform of PLATFORMS) {
+      const q = minutes('quick', platform)
+      const o = minutes('observe', platform)
+      const note = `${platform}: quick ${q.toFixed(0)}min vs observe ${o.toFixed(0)}min`
+      expect(q / o, note).toBeGreaterThan(0.85)
+      // Also not MORE than observe: three days that quietly do double the work
+      // of two weeks is not the trade being offered.
+      expect(q / o, note).toBeLessThan(1.15)
+    }
+  })
+
+  it('quick sessions really are about half an hour', () => {
+    // The whole point of the level. A "3 days, 30 minutes a day" schedule that
+    // actually runs six-minute sessions is just `observe` with a short run.
+    for (const platform of PLATFORMS) {
+      for (const s of planSessions(load('quick', platform), 'maya-x')) {
+        const mid = (s.estimateMs[0] + s.estimateMs[1]) / 2 / 60_000
+        expect(mid, `${platform}/quick #${s.index} is ${mid.toFixed(0)}min`).toBeGreaterThan(22)
+        expect(mid, `${platform}/quick #${s.index} is ${mid.toFixed(0)}min`).toBeLessThan(40)
+      }
+    }
+  })
+
+  it('quick never comments, edits a profile, friends or joins a group', () => {
+    // A compressed schedule is the WORST place for the irreversible actions.
+    for (const platform of PLATFORMS) {
+      const actions = actionsIn('quick', platform)
+      for (const w of ['comment', 'profile_mutation', 'accept_friend', 'join_group']) {
+        expect([...actions], `${platform}/quick contains ${w}`).not.toContain(w)
+      }
+    }
+  })
+
+  it('quick touches nothing on day one', () => {
+    // Day one is a returning user looking around. Liking within minutes of a
+    // sign-in is the pattern the whole exercise exists to avoid.
+    for (const platform of PLATFORMS) {
+      const day1 = planSessions(load('quick', platform), 'maya-x')[0]
+      for (const step of day1.steps) {
+        expect(WRITES, `${platform}/quick day 1 does ${step.action}`).not.toContain(step.action)
       }
     }
   })
