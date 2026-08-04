@@ -1,0 +1,117 @@
+# Instagram warmup — one session per day.
+#
+# Shape follows the 18-day BHW/ToyBox schedule, the most engineering-usable
+# artifact in the practitioner corpus: consumption first, profile completion
+# spread across separate days, follows ramping late, deliberate rest.
+#
+# ⚠️ Every number here is practitioner consensus with NO platform backing, and
+# vendors contradict each other by ~3x. Treat them as a starting shape and tune
+# them; that is why this is a file and not code.
+#
+# Rest days are declared as a RULE, not fixed indices — placement is seeded per
+# account so two accounts never rest on the same days.
+
+platform: instagram
+version: '2026.08-a'
+length: 18
+
+# minGap stops rest days clumping (which reads as an abandoned account) but
+# every unit of it shrinks the space of possible patterns, and a small space
+# means accounts share rest patterns. 2 over a 10-slot window keeps them
+# separated while leaving plenty of distinct placements.
+rest:
+  count: [2, 3]
+  window: [8, 17]
+  minGap: 2
+
+sessions:
+  - sessions: [1, 4]
+    label: Consumption only — no engagement of any kind
+    steps:
+      - action: story_views
+        count: [10, 15]
+      - action: feed_scroll
+        seconds: [120, 300]
+      - action: watch_videos
+        count: [3, 8]
+      - action: search
+        skipChance: 0.4
+
+  - sessions: [5, 5]
+    label: Set username
+    steps:
+      - action: profile_mutation
+        field: username
+      - action: story_views
+        count: [10, 15]
+
+  - sessions: [6, 6]
+    label: Set display name
+    steps:
+      - action: profile_mutation
+        field: display_name
+      - action: story_views
+        count: [10, 15]
+      - action: feed_scroll
+        seconds: [90, 240]
+
+  - sessions: [7, 7]
+    label: Bio, avatar and first photo
+    steps:
+      - action: profile_mutation
+        field: bio
+      - action: profile_mutation
+        field: avatar
+      - action: profile_mutation
+        field: first_photo
+      - action: feed_scroll
+        seconds: [90, 200]
+
+  - sessions: [8, 9]
+    label: First follows
+    steps:
+      - action: feed_scroll
+        seconds: [90, 240]
+      - action: search
+      - action: follow
+        count: [4, 6]
+      - action: watch_videos
+        count: [3, 6]
+
+  - sessions: [10, 15]
+    label: Follow ramp, first likes
+    steps:
+      - action: feed_scroll
+        seconds: [120, 300]
+      - action: watch_videos
+        count: [4, 10]
+      - action: like
+        count: [2, 6]
+      - action: search
+        skipChance: 0.3
+      - action: follow
+        count: [6, 10]
+      - action: visit_profiles
+        count: [2, 5]
+        skipChance: 0.35
+
+  - sessions: [16, 16]
+    label: Add bio link
+    steps:
+      - action: profile_mutation
+        field: bio_link
+      - action: feed_scroll
+        seconds: [90, 200]
+
+  - sessions: [17, 18]
+    label: Settling — steady low activity
+    steps:
+      - action: feed_scroll
+        seconds: [120, 280]
+      - action: watch_videos
+        count: [4, 9]
+      - action: like
+        count: [2, 5]
+      - action: follow
+        count: [4, 8]
+        skipChance: 0.25
