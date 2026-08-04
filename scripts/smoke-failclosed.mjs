@@ -7,6 +7,7 @@ import * as path from 'node:path'
 const APP_DIR = path.resolve(import.meta.dirname, '..')
 const env = { ...process.env }
 delete env.ELECTRON_RUN_AS_NODE
+env.BOILER_ALLOW_MULTI = '1'
 
 const app = await electron.launch({
   executablePath: path.join(APP_DIR, 'node_modules/electron/dist/electron.exe'),

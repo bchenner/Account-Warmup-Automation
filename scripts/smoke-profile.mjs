@@ -13,6 +13,7 @@ fs.mkdirSync(SHOT_DIR, { recursive: true })
 
 const env = { ...process.env }
 delete env.ELECTRON_RUN_AS_NODE
+env.BOILER_ALLOW_MULTI = '1'
 
 const electronBin = path.join(
   APP_DIR,

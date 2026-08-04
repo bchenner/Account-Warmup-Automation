@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { CreateProfileInput } from '@shared/ipc'
-import type { ProfileRow, Proxy } from '@shared/schemas'
+import type { Profile, ProfileRow, Proxy } from '@shared/schemas'
 
 export default function Profiles(): JSX.Element {
   const [rows, setRows] = useState<ProfileRow[]>([])
@@ -55,6 +55,7 @@ export default function Profiles(): JSX.Element {
   // Two-step inline rather than window.confirm: Electron's is a native blocking
   // dialog, which is both unstyled and impossible to drive from a test.
   const [confirming, setConfirming] = useState<string | null>(null)
+  const [editing, setEditing] = useState<string | null>(null)
 
   const remove = async (row: ProfileRow): Promise<void> => {
     if (confirming !== row.id) {
@@ -118,6 +119,14 @@ export default function Profiles(): JSX.Element {
               row={row}
               busy={busy === row.id}
               confirmingDelete={confirming === row.id}
+              editing={editing === row.id}
+              proxies={proxies}
+              onEdit={() => setEditing(editing === row.id ? null : row.id)}
+              onSaved={async () => {
+                setEditing(null)
+                await refresh()
+              }}
+              onError={setError}
               onLaunch={() => launch(row)}
               onStop={() => stop(row)}
               onDelete={() => remove(row)}
@@ -154,6 +163,11 @@ function Row({
   row,
   busy,
   confirmingDelete,
+  editing,
+  proxies,
+  onEdit,
+  onSaved,
+  onError,
   onLaunch,
   onStop,
   onDelete
@@ -161,6 +175,11 @@ function Row({
   row: ProfileRow
   busy: boolean
   confirmingDelete: boolean
+  editing: boolean
+  proxies: Proxy[]
+  onEdit: () => void
+  onSaved: () => void
+  onError: (e: string) => void
   onLaunch: () => void
   onStop: () => void
   onDelete: () => void
@@ -214,6 +233,12 @@ function Row({
         </div>
 
         <div className="flex shrink-0 gap-2">
+          <button
+            onClick={onEdit}
+            className="rounded-lg border border-surface-border px-2.5 py-1 text-xs text-neutral-300 hover:bg-surface-tertiary"
+          >
+            {editing ? 'Done' : 'Edit'}
+          </button>
           {row.running ? (
             <button
               onClick={onStop}
@@ -255,6 +280,120 @@ function Row({
           restore it. Click again to confirm.
         </p>
       )}
+
+      {editing && (
+        <EditForm row={row} proxies={proxies} onSaved={onSaved} onError={onError} />
+      )}
+    </div>
+  )
+}
+
+function EditForm({
+  row,
+  proxies,
+  onSaved,
+  onError
+}: {
+  row: ProfileRow
+  proxies: Proxy[]
+  onSaved: () => void
+  onError: (e: string) => void
+}): JSX.Element {
+  const [draft, setDraft] = useState<Profile>(row)
+  const [pending, setPending] = useState(false)
+
+  const set = <K extends keyof Profile>(k: K, v: Profile[K]): void =>
+    setDraft((d) => ({ ...d, [k]: v }))
+  const setFp = <K extends keyof Profile['fingerprint']>(
+    k: K,
+    v: Profile['fingerprint'][K]
+  ): void => setDraft((d) => ({ ...d, fingerprint: { ...d.fingerprint, [k]: v } }))
+
+  // Its own proxy stays selectable; others must be free and verified.
+  const selectable = proxies.filter(
+    (p) => p.id === row.proxyId || (!p.assignedProfileId && p.lastVerification?.ok)
+  )
+
+  const save = async (): Promise<void> => {
+    setPending(true)
+    const res = await window.boiler.updateProfile(draft)
+    setPending(false)
+    if (!res.ok) return onError(res.error)
+    onSaved()
+  }
+
+  return (
+    <div className="mt-3 space-y-3 border-t border-surface-border pt-3">
+      {row.running && (
+        <p className="text-xxs text-verdict-warn">
+          This profile is open. Fingerprint and proxy changes are applied at launch, so they take
+          effect the next time you open it.
+        </p>
+      )}
+
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Profile name">
+          <Input value={draft.name} onChange={(v) => set('name', v)} />
+        </Field>
+        <Field label="Proxy">
+          <select
+            value={draft.proxyId ?? ''}
+            onChange={(e) => set('proxyId', e.target.value || null)}
+            className="w-full rounded-lg border border-surface-border bg-surface-primary px-2 py-1.5 text-sm text-neutral-200 outline-none focus:border-neutral-600"
+          >
+            <option value="">— none —</option>
+            {selectable.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.host}:{p.port} · {p.lastVerification?.country ?? p.country}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Timezone">
+          <Input value={draft.fingerprint.timezone} onChange={(v) => setFp('timezone', v)} />
+        </Field>
+        <Field label="Locale">
+          <Input value={draft.fingerprint.locale} onChange={(v) => setFp('locale', v)} />
+        </Field>
+        <Field label="Window width">
+          <Input
+            value={String(draft.fingerprint.windowWidth)}
+            onChange={(v) => setFp('windowWidth', Number(v) || 0)}
+          />
+        </Field>
+        <Field label="Window height">
+          <Input
+            value={String(draft.fingerprint.windowHeight)}
+            onChange={(v) => setFp('windowHeight', Number(v) || 0)}
+          />
+        </Field>
+      </div>
+
+      <Field label="Notes">
+        <Input value={draft.notes} onChange={(v) => set('notes', v)} placeholder="notes" />
+      </Field>
+
+      {!draft.proxyId && (
+        <label className="flex items-start gap-2 rounded-lg border border-verdict-fail/40 bg-verdict-fail/10 p-2">
+          <input
+            type="checkbox"
+            checked={draft.allowDirect}
+            onChange={(e) => set('allowDirect', e.target.checked)}
+            className="mt-0.5"
+          />
+          <span className="text-xxs text-red-300">
+            Allow opening on my real IP. With no proxy every site sees your home connection.
+          </span>
+        </label>
+      )}
+
+      <button
+        onClick={save}
+        disabled={pending || !draft.name.trim()}
+        className="rounded-lg bg-neutral-100 px-3 py-1.5 text-sm font-medium text-neutral-900 disabled:opacity-40"
+      >
+        {pending ? 'Saving…' : 'Save changes'}
+      </button>
     </div>
   )
 }

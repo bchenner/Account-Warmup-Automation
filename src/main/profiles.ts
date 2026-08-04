@@ -1,4 +1,5 @@
 import { readFile, writeFile, mkdir, readdir, rm, rename } from 'node:fs/promises'
+// (writeFile is reused by seedPreferences below.)
 import { existsSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { spawn, type ChildProcess } from 'node:child_process'
@@ -123,7 +124,9 @@ export async function listAccounts(personaSlug: string, id: string): Promise<Acc
 // Launching real Chrome
 // ---------------------------------------------------------------------------
 
-const running = new Map<string, ChildProcess>()
+/** The user-data-dir is tracked alongside the child because it, not the pid, is
+ * what reliably identifies the browser process at shutdown. */
+const running = new Map<string, { child: ChildProcess; userDataDir: string }>()
 
 export function isRunning(profileId: string): boolean {
   return running.has(profileId)
@@ -153,6 +156,32 @@ export function findChrome(): string | null {
 }
 
 export type LaunchResult = { egressIp: string | null; direct: boolean }
+
+/**
+ * Seed a new profile so Chrome reopens the tabs that were open last time.
+ *
+ * The profile directory is already fully persistent — cookies, logins and
+ * history survive because it is a real user-data-dir, not an incognito
+ * session. Tabs are the exception: Chrome's default startup is the new tab
+ * page, so "continue where you left off" has to be set explicitly.
+ *
+ * Only ever written when absent. Overwriting Preferences on an established
+ * profile would discard settings Chrome has since accumulated.
+ */
+async function seedPreferences(userDataDir: string): Promise<void> {
+  const prefsPath = join(userDataDir, 'Default', 'Preferences')
+  if (existsSync(prefsPath)) return
+  await mkdir(dirname(prefsPath), { recursive: true })
+  await writeFile(
+    prefsPath,
+    JSON.stringify({
+      // 1 = restore the last session. (4 = specific pages, 5 = new tab page.)
+      session: { restore_on_startup: 1 },
+      profile: { exit_type: 'Normal', exited_cleanly: true }
+    }),
+    'utf8'
+  )
+}
 
 export async function launchProfile(profile: Profile): Promise<LaunchResult> {
   if (isRunning(profile.id)) throw new Error('this profile is already open')
@@ -195,6 +224,7 @@ export async function launchProfile(profile: Profile): Promise<LaunchResult> {
 
   const userDataDir = chromeDir(profile.personaSlug, profile.id)
   await mkdir(userDataDir, { recursive: true })
+  await seedPreferences(userDataDir)
 
   const args = [
     `--user-data-dir=${userDataDir}`,
@@ -225,18 +255,62 @@ export async function launchProfile(profile: Profile): Promise<LaunchResult> {
     env: { ...process.env, TZ: profile.fingerprint.timezone }
   })
 
-  running.set(profile.id, child)
+  running.set(profile.id, { child, userDataDir })
   child.on('exit', () => running.delete(profile.id))
 
   await saveProfile({ ...profile, lastUsedAt: new Date().toISOString() })
   return { egressIp, direct: !proxyArg }
 }
 
+/**
+ * Ask Chrome to close rather than terminating it.
+ *
+ * Node's child.kill() calls TerminateProcess on Windows, which is a hard kill:
+ * Chrome never runs its shutdown path, so the open tabs are not written to the
+ * session file and the next launch shows "Chrome didn't shut down correctly".
+ * `taskkill` without /F posts WM_CLOSE instead, which is the same thing that
+ * happens when the operator clicks the window's X.
+ */
 export function stopProfile(profileId: string): void {
-  const child = running.get(profileId)
-  if (!child) return
-  child.kill()
-  running.delete(profileId)
+  const entry = running.get(profileId)
+  if (!entry) return
+  const { child, userDataDir } = entry
+
+  if (process.platform !== 'win32') {
+    child.kill('SIGTERM')
+    return
+  }
+
+  // CloseMainWindow posts WM_CLOSE to the browser window — exactly what the
+  // operator clicking the X does, so Chrome saves its open tabs and records a
+  // clean exit. A hard kill (TerminateProcess, which child.kill() uses on
+  // Windows, or `taskkill /F`) skips the shutdown path: tabs are lost and the
+  // next launch reports that Chrome didn't shut down correctly.
+  //
+  // Targeted by --user-data-dir rather than by our child's pid: that directory
+  // is unique to this profile, and Chrome's launcher does not always remain the
+  // process that owns the window.
+  const dir = userDataDir.replace(/'/g, "''")
+  spawn(
+    'powershell',
+    [
+      '-NoProfile',
+      '-Command',
+      `Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" |` +
+        ` Where-Object { $_.CommandLine -like '*${dir}*' } |` +
+        ` ForEach-Object { $p = Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue;` +
+        ` if ($p -and $p.MainWindowHandle -ne 0) { $null = $p.CloseMainWindow() } }`
+    ],
+    { stdio: 'ignore' }
+  )
+
+  // Only if it is genuinely wedged.
+  const pid = child.pid
+  setTimeout(() => {
+    if (running.has(profileId) && pid) {
+      spawn('taskkill', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore' })
+    }
+  }, 10_000)
 }
 
 export function stopAll(): void {

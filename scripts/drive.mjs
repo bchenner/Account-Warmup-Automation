@@ -28,6 +28,9 @@ const electronBin =
 // "Cannot read properties of undefined (reading 'whenReady')".
 const env = { ...process.env }
 delete env.ELECTRON_RUN_AS_NODE
+// Bypass the single-instance lock so driving the app does not defer to (or get
+// killed by) a dev instance the operator has open.
+env.BOILER_ALLOW_MULTI = '1'
 
 const app = await electron.launch({
   executablePath: electronBin,

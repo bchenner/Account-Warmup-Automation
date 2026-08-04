@@ -4,6 +4,18 @@ import { registerIpc } from './ipc'
 import { setDataRoot } from './store'
 import { stopAll } from './profiles'
 
+// Only one Boiler at a time. Two instances would each hold their own view of
+// proxies.yaml and the running-profile map, and the second to write would
+// clobber the first — the single-writer assumption the whole file store rests
+// on (no database, no locking) only holds with one process.
+//
+// The smoke scripts need to run while a dev instance may be open, so they can
+// opt out explicitly.
+const allowMulti = process.env.BOILER_ALLOW_MULTI === '1'
+if (!allowMulti && !app.requestSingleInstanceLock()) {
+  app.quit()
+}
+
 function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
     width: 1280,
@@ -44,6 +56,16 @@ app.whenReady().then(() => {
   setDataRoot(join(app.getPath('userData'), 'data'))
   registerIpc()
   createWindow()
+
+  // Someone tried to start a second Boiler: surface the one that already
+  // exists rather than silently doing nothing.
+  app.on('second-instance', () => {
+    const [win] = BrowserWindow.getAllWindows()
+    if (!win) return createWindow()
+    if (win.isMinimized()) win.restore()
+    win.show()
+    win.focus()
+  })
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
