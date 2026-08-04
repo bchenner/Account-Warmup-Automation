@@ -10,6 +10,8 @@
  * service, no network call.
  */
 
+import { chance, clamp, makeRng, uniform } from './human'
+
 // ---------------------------------------------------------------------------
 // Language
 // ---------------------------------------------------------------------------
@@ -97,6 +99,18 @@ export type TasteProfile = {
    * persona so its behaviour stays recognisable over months.
    */
   selectivity: number
+  /**
+   * Chance of engaging with something outside the persona's interests anyway.
+   * A person who has never once watched something off-topic does not exist,
+   * and an account whose behaviour maps perfectly onto a keyword list is a
+   * machine. Set per persona by `withPersonality`.
+   */
+  curiosity?: number
+  /**
+   * Chance of scrolling past something squarely on-topic. Same reasoning in
+   * reverse — nobody watches everything in their own niche.
+   */
+  fickleness?: number
 }
 
 export type ContentItem = {
@@ -179,9 +193,78 @@ export function shouldEngage(
   const threshold = taste.selectivity * (lang.language === 'unknown' ? 1.35 : 1)
   const jittered = threshold * (0.85 + rng() * 0.3)
 
-  return score >= jittered
+  const onTopic = score >= jittered
+
+  // Deliberate inconsistency. Without these two, behaviour maps exactly onto a
+  // keyword list — which is a cleaner signature than no filtering at all.
+  if (onTopic && rng() < (taste.fickleness ?? 0)) {
+    return { ...base, engage: false, reason: 'scrolled past despite matching — fickleness' }
+  }
+  if (!onTopic && rng() < (taste.curiosity ?? 0)) {
+    return { ...base, engage: true, reason: 'off-topic but watched anyway — curiosity' }
+  }
+
+  return onTopic
     ? { ...base, engage: true, reason: `matches interests (${score.toFixed(2)})` }
     : { ...base, engage: false, reason: `too far from interests (${score.toFixed(2)})` }
+}
+
+/**
+ * Give a taste profile a stable personality. Seeded from the persona slug, so
+ * one persona is open-minded and another narrow, and both stay that way.
+ */
+export function withPersonality(taste: TasteProfile, personaSlug: string): TasteProfile {
+  const rng = makeRng(`taste:${personaSlug}`)
+  return {
+    ...taste,
+    selectivity: clamp(taste.selectivity * uniform(0.75, 1.3, rng), 0.15, 0.55),
+    curiosity: uniform(0.04, 0.14, rng),
+    fickleness: uniform(0.08, 0.22, rng)
+  }
+}
+
+export type WatchPlan = {
+  /** Fraction of the video to watch, 0–1. */
+  fraction: number
+  /** Whether to like it. Only ever true for something actually watched. */
+  like: boolean
+  reason: string
+}
+
+/**
+ * How much of a video to watch, and whether to like it.
+ *
+ * Watch-to-completion is a strong positive signal to the recommender, so it is
+ * reserved for content the persona actually cares about — but not exclusively,
+ * because "always finishes on-topic videos, always bails on others" is itself a
+ * pattern. Off-topic content usually gets a glance and a scroll.
+ */
+export function watchPlan(
+  item: ContentItem,
+  taste: TasteProfile,
+  opts: { likeRate: number },
+  rng: () => number = Math.random
+): WatchPlan {
+  const verdict = shouldEngage(item, taste, rng)
+
+  if (!verdict.engage) {
+    // A glance. Long enough to have registered the video, short enough to read
+    // as disinterest.
+    return { fraction: uniform(0.04, 0.3, rng), like: false, reason: verdict.reason }
+  }
+
+  // Interested: most of it, often all of it, occasionally interrupted.
+  const fraction = chance(0.55, rng) ? 1 : uniform(0.5, 0.98, rng)
+
+  // Likes are rationed by the schedule's per-session budget, so this is a
+  // propensity rather than a decision — the runner still enforces the cap.
+  const like = chance(opts.likeRate, rng)
+
+  return {
+    fraction,
+    like,
+    reason: `${verdict.reason}${fraction === 1 ? ', watched fully' : ''}`
+  }
 }
 
 /**

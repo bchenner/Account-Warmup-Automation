@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest'
-import { detectLanguage, interestScore, shouldEngage, tasteFromNiche, type TasteProfile } from './content'
+import {
+  detectLanguage,
+  interestScore,
+  shouldEngage,
+  tasteFromNiche,
+  watchPlan,
+  withPersonality,
+  type TasteProfile
+} from './content'
+import { NICHES, NICHE_KEYS, otherNiches, type NicheKey } from './niches'
 import { makeRng } from './human'
 
 const maya: TasteProfile = {
@@ -163,5 +172,114 @@ describe('tasteFromNiche', () => {
     const t = tasteFromNiche('home fitness workout')
     expect(Object.keys(t.interests).sort()).toEqual(['fitness', 'home', 'workout'])
     expect(t.languages).toEqual(['en'])
+  })
+})
+
+// --- niches, curiosity, fickleness, watch plans -----------------------------
+
+
+describe('niche presets', () => {
+  it('every niche has interests, avoid terms and English', () => {
+    for (const key of NICHE_KEYS) {
+      const { taste, label } = NICHES[key]
+      expect(label.length, key).toBeGreaterThan(0)
+      expect(Object.keys(taste.interests).length, key).toBeGreaterThan(8)
+      expect(taste.avoid.length, key).toBeGreaterThan(0)
+      expect(taste.languages).toContain('en')
+    }
+  })
+
+  it('niches actually discriminate — each scores its own content highest', () => {
+    const probes: Partial<Record<NicheKey, string>> = {
+      'home-fitness': 'full body workout at the gym, strength training and mobility',
+      cooking: 'a slow roast dinner recipe from my kitchen, sauce and all',
+      travel: 'my itinerary for this trip, hostel and flight tips for the destination',
+      gaming: 'gameplay clip from my stream, boss fight loadout after the patch',
+      pets: 'my rescue puppy meeting the cat, vet said the breed is fine'
+    }
+    for (const [k, caption] of Object.entries(probes)) {
+      const key = k as NicheKey
+      const own = interestScore({ caption }, NICHES[key].taste)
+      for (const other of otherNiches(key)) {
+        expect(own, `${key} vs ${other}`).toBeGreaterThan(
+          interestScore({ caption }, NICHES[other].taste)
+        )
+      }
+    }
+  })
+
+  it('rejects the scam bait that saturates these hashtags', () => {
+    const v = shouldEngage(
+      { caption: 'the workout routine that funded my crypto casino betting run' },
+      NICHES['home-fitness'].taste,
+      makeRng('z')
+    )
+    expect(v.engage).toBe(false)
+  })
+})
+
+describe('personality', () => {
+  it('gives each persona its own openness, stably', () => {
+    const a = withPersonality(NICHES['home-fitness'].taste, 'maya')
+    const b = withPersonality(NICHES['home-fitness'].taste, 'luis')
+    expect(a.curiosity).not.toBeCloseTo(b.curiosity!, 3)
+    expect(a.fickleness).not.toBeCloseTo(b.fickleness!, 3)
+    expect(withPersonality(NICHES['home-fitness'].taste, 'maya')).toEqual(a)
+  })
+
+  it('sometimes watches off-topic content, and sometimes skips on-topic', () => {
+    const taste = { ...withPersonality(NICHES['home-fitness'].taste, 'maya'), curiosity: 0.2, fickleness: 0.2 }
+    const onTopic = 'This is the home gym workout that I do when I have no time for training'
+    const offTopic = 'This is the sourdough starter that I have been feeding for the last month'
+
+    const onResults = Array.from({ length: 400 }, (_, i) =>
+      shouldEngage({ caption: onTopic }, taste, makeRng(`on${i}`)).engage
+    )
+    const offResults = Array.from({ length: 400 }, (_, i) =>
+      shouldEngage({ caption: offTopic }, taste, makeRng(`off${i}`)).engage
+    )
+
+    // Directionally consistent...
+    expect(onResults.filter(Boolean).length).toBeGreaterThan(offResults.filter(Boolean).length)
+    // ...but never absolute, which is the point.
+    expect(onResults.filter((r) => !r).length).toBeGreaterThan(0)
+    expect(offResults.filter(Boolean).length).toBeGreaterThan(0)
+  })
+})
+
+describe('watch plans', () => {
+  const taste = withPersonality(NICHES['home-fitness'].taste, 'maya')
+  const onTopic = { caption: 'This is the home gym workout that I do when I have no time to train' }
+  const offTopic = { caption: 'This is the sourdough starter that I have been feeding all month' }
+
+  it('watches more of on-topic than off-topic content', () => {
+    const mean = (item: typeof onTopic, tag: string) =>
+      Array.from({ length: 300 }, (_, i) => watchPlan(item, taste, { likeRate: 0.2 }, makeRng(`${tag}${i}`)).fraction)
+        .reduce((s, v) => s + v, 0) / 300
+    expect(mean(onTopic, 'on')).toBeGreaterThan(mean(offTopic, 'off') * 2)
+  })
+
+  it('finishes some videos completely rather than always stopping short', () => {
+    const fractions = Array.from({ length: 300 }, (_, i) =>
+      watchPlan(onTopic, taste, { likeRate: 0.2 }, makeRng(`f${i}`)).fraction
+    )
+    expect(fractions.filter((f) => f === 1).length).toBeGreaterThan(50)
+    expect(fractions.filter((f) => f < 1).length).toBeGreaterThan(20)
+  })
+
+  it('never likes something it did not engage with', () => {
+    const plans = Array.from({ length: 300 }, (_, i) =>
+      watchPlan(offTopic, taste, { likeRate: 1 }, makeRng(`l${i}`))
+    )
+    const skipped = plans.filter((p) => p.reason.includes('too far'))
+    expect(skipped.length).toBeGreaterThan(0)
+    expect(skipped.every((p) => !p.like)).toBe(true)
+  })
+
+  it('respects the like rate as a propensity', () => {
+    const rate = (r: number) =>
+      Array.from({ length: 400 }, (_, i) => watchPlan(onTopic, taste, { likeRate: r }, makeRng(`k${r}${i}`)))
+        .filter((p) => p.like).length / 400
+    expect(rate(0.1)).toBeLessThan(rate(0.6))
   })
 })
