@@ -131,6 +131,12 @@ export async function runWarmupSession(args: {
           : [])
       ],
       ...(proxyServer ? { proxy: { server: proxyServer } } : {}),
+      // Applied through CDP, not the TZ environment variable — Windows ignores
+      // TZ, so a process-level setting leaves the browser reporting the
+      // operator's own zone while the IP says otherwise. This is kept in step
+      // with the proxy automatically; see syncTimezoneFromProxy.
+      timezoneId: profile.fingerprint.timezone,
+      locale: profile.fingerprint.locale,
       viewport: null
     })
 

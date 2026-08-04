@@ -3,6 +3,7 @@ import { readFile, writeFile, mkdir, readdir, rm, rename } from 'node:fs/promise
 import { existsSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { spawn, type ChildProcess } from 'node:child_process'
+import { chromium, type Browser, type CDPSession, type Page } from 'patchright'
 import { parse, stringify } from 'yaml'
 import {
   AccountSchema,
@@ -129,8 +130,84 @@ export async function listAccounts(personaSlug: string, id: string): Promise<Acc
  * what reliably identifies the browser process at shutdown. */
 const running = new Map<
   string,
-  { child: ChildProcess; userDataDir: string; relay?: RelayHandle }
+  { child: ChildProcess; userDataDir: string; relay?: RelayHandle; cdp?: Browser }
 >()
+
+/**
+ * Make the browser's clock agree with the IP it appears from.
+ *
+ * Chrome has no timezone flag, and the TZ environment variable does NOT work
+ * on Windows: measured against a Mesa, Arizona proxy, a child spawned with
+ * TZ=America/Phoenix still reported Europe/Berlin, this machine's own zone.
+ * Windows ICU reads the OS setting and ignores TZ entirely. A US IP paired
+ * with a European clock is precisely the incoherence worth avoiding, and it
+ * lands hardest at signup, which happens in this window.
+ *
+ * CDP's Emulation.setTimezoneOverride does work, so the browser is spawned with
+ * a loopback debugging port and the override is applied to every tab, including
+ * ones opened later.
+ *
+ * patchright's connector is used rather than plain Playwright's on purpose: it
+ * omits the Runtime.enable call that is itself a well-known detection signal.
+ */
+async function overrideTimezone(
+  userDataDir: string,
+  timezoneId: string
+): Promise<Browser> {
+  // Chrome writes the port it actually bound on the first line of this file.
+  //
+  // The caller deletes it before spawning, which is not optional: Chrome leaves
+  // the file behind on exit, so the second launch of a profile would otherwise
+  // read the PREVIOUS run's port and connect to nothing (measured: ECONNREFUSED
+  // on relaunch, with a port from the run before).
+  const portFile = join(userDataDir, 'DevToolsActivePort')
+  let port: string | undefined
+  for (let i = 0; i < 150 && !port; i++) {
+    try {
+      const [line] = (await readFile(portFile, 'utf8')).split('\n')
+      if (line?.trim()) port = line.trim()
+    } catch {
+      await new Promise((r) => setTimeout(r, 100))
+    }
+  }
+  if (!port) throw new Error('Chrome never reported a debugging port')
+
+  // The file appears a moment before the endpoint accepts connections.
+  let browser: Browser | undefined
+  for (let i = 0; i < 40 && !browser; i++) {
+    try {
+      browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`)
+    } catch (err) {
+      if (i === 39) throw err
+      await new Promise((r) => setTimeout(r, 250))
+    }
+  }
+  if (!browser) throw new Error(`could not attach to Chrome on port ${port}`)
+  const context = browser.contexts()[0]
+  if (!context) throw new Error('Chrome exposed no browsing context')
+
+  // An Emulation override lives only as long as the CDP session that set it —
+  // detaching reverts it, measured as a new tab falling back to the host zone.
+  // The sessions are therefore held for the tab's lifetime, and released with
+  // it so a long-lived window does not accumulate them.
+  const sessions = new Set<CDPSession>()
+  const apply = async (page: Page): Promise<void> => {
+    const session = await context.newCDPSession(page)
+    await session.send('Emulation.setTimezoneOverride', { timezoneId })
+    sessions.add(session)
+    page.once('close', () => {
+      sessions.delete(session)
+      void session.detach().catch(() => undefined)
+    })
+  }
+
+  // Tabs restored from the last session exist before this runs; tabs the
+  // operator opens later do not, and an un-overridden tab would report the
+  // host's zone.
+  await Promise.all(context.pages().map((p) => apply(p).catch(() => undefined)))
+  context.on('page', (p) => void apply(p).catch(() => undefined))
+  return browser
+}
 
 export function isRunning(profileId: string): boolean {
   return running.has(profileId)
@@ -270,6 +347,11 @@ export async function launchProfile(
   const userDataDir = chromeDir(profile.personaSlug, profile.id)
   await mkdir(userDataDir, { recursive: true })
 
+  // Chrome does not clean this up on exit, so a leftover from the last run
+  // would be read as if it belonged to this one. Removing it first makes the
+  // file's reappearance the signal that THIS browser is listening.
+  await rm(join(userDataDir, 'DevToolsActivePort'), { force: true })
+
   const args = [
     `--user-data-dir=${userDataDir}`,
     // A real monitor-shaped window. Playwright's 1280x720 default is not one.
@@ -280,6 +362,10 @@ export async function launchProfile(
     '--restore-last-session',
     '--no-first-run',
     '--no-default-browser-check',
+    // Loopback only, and port 0 so it never collides with a second profile.
+    // This exists solely to carry the timezone override; see overrideTimezone.
+    '--remote-debugging-port=0',
+    '--remote-debugging-address=127.0.0.1',
     // Warmup sessions run off-screen so they do not take over the operator's
     // display. Manual "Open" never does — that window is meant to be used.
     ...(opts.background ? BACKGROUND_ARGS : []),
@@ -300,8 +386,9 @@ export async function launchProfile(
   const child = spawn(chrome, args, {
     detached: false,
     stdio: 'ignore',
-    // TZ is process-level, so Date and Intl agree with the proxy's country
-    // without anything being injected into the page.
+    // TZ is set for the sake of anything outside the renderer that reads it,
+    // but it does NOT reach the page on Windows — overrideTimezone is what
+    // actually makes Date and Intl agree with the proxy.
     env: { ...process.env, TZ: profile.fingerprint.timezone }
   })
 
@@ -310,8 +397,24 @@ export async function launchProfile(
     // The relay exists only for this browser; leaving it listening would keep
     // an authenticated proxy open on loopback.
     void running.get(profile.id)?.relay?.close()
+    void running.get(profile.id)?.cdp?.close().catch(() => undefined)
     running.delete(profile.id)
   })
+
+  // Fail closed, as with the proxy pre-flight. Opening on a US IP while the
+  // browser reports the operator's own European clock is the exact mismatch
+  // this profile exists to avoid, so a failure here closes the browser rather
+  // than leaving it open and quietly incoherent.
+  try {
+    const cdp = await overrideTimezone(userDataDir, profile.fingerprint.timezone)
+    const entry = running.get(profile.id)
+    if (entry) entry.cdp = cdp
+  } catch (err) {
+    stopProfile(profile.id)
+    throw new Error(
+      `could not set the browser timezone to ${profile.fingerprint.timezone}, closing: ${(err as Error).message}`
+    )
+  }
 
   await saveProfile({ ...profile, lastUsedAt: new Date().toISOString() })
   return { egressIp, direct: !proxyArg }

@@ -325,7 +325,17 @@ function EditForm({
         <Field label="Proxy">
           <select
             value={draft.proxyId ?? ''}
-            onChange={(e) => set('proxyId', e.target.value || null)}
+            // Show the zone the profile will actually get, rather than leaving
+            // the previous proxy's behind for the operator to read as current.
+            onChange={(e) => {
+              const id = e.target.value || null
+              const zone = proxies.find((p) => p.id === id)?.lastVerification?.timezone
+              setDraft((d) => ({
+                ...d,
+                proxyId: id,
+                fingerprint: { ...d.fingerprint, timezone: zone ?? d.fingerprint.timezone }
+              }))
+            }}
             className="w-full rounded-lg border border-surface-border bg-surface-primary px-2 py-1.5 text-sm text-neutral-200 outline-none focus:border-neutral-600"
           >
             <option value="">— none —</option>
@@ -336,8 +346,18 @@ function EditForm({
             ))}
           </select>
         </Field>
-        <Field label="Timezone">
-          <Input value={draft.fingerprint.timezone} onChange={(v) => setFp('timezone', v)} />
+        {/* Editable only without a proxy. With one bound, the zone is taken
+            from the proxy's own geo on every verification, so anything typed
+            here would be silently replaced. */}
+        <Field
+          label="Timezone"
+          hint={draft.proxyId ? 'set from the proxy, and re-checked on every verification' : undefined}
+        >
+          <Input
+            value={draft.fingerprint.timezone}
+            readOnly={!!draft.proxyId}
+            onChange={(v) => setFp('timezone', v)}
+          />
         </Field>
         <Field label="Locale">
           <Input value={draft.fingerprint.locale} onChange={(v) => setFp('locale', v)} />
@@ -470,7 +490,11 @@ function CreateForm({
         <div className="mb-1 text-xxs uppercase tracking-wide text-neutral-500">Proxy</div>
         <select
           value={form.proxyId ?? ''}
-          onChange={(e) => set('proxyId', e.target.value || null)}
+          onChange={(e) => {
+            const id = e.target.value || null
+            const zone = proxies.find((p) => p.id === id)?.lastVerification?.timezone
+            setForm((f) => ({ ...f, proxyId: id, timezone: zone ?? f.timezone }))
+          }}
           className="w-full rounded-lg border border-surface-border bg-surface-primary px-2 py-1.5 text-sm text-neutral-200 outline-none focus:border-neutral-600"
         >
           <option value="">— none —</option>
@@ -503,8 +527,15 @@ function CreateForm({
       <details className="rounded-lg border border-surface-border bg-surface-primary p-3">
         <summary className="cursor-pointer text-xs text-neutral-300">Fingerprint</summary>
         <div className="mt-3 grid grid-cols-2 gap-3">
-          <Field label="Timezone">
-            <Input value={form.timezone} onChange={(v) => set('timezone', v)} />
+          <Field
+            label="Timezone"
+            hint={form.proxyId ? "replaced by the proxy's own zone on create" : undefined}
+          >
+            <Input
+              value={form.timezone}
+              readOnly={!!form.proxyId}
+              onChange={(v) => set('timezone', v)}
+            />
           </Field>
           <Field label="Locale">
             <Input value={form.locale} onChange={(v) => set('locale', v)} />
@@ -564,17 +595,20 @@ function Field({
 function Input({
   value,
   onChange,
-  placeholder
+  placeholder,
+  readOnly
 }: {
   value: string
   onChange: (v: string) => void
   placeholder?: string
+  readOnly?: boolean
 }): JSX.Element {
   return (
     <input
       value={value}
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
+      readOnly={readOnly}
       spellCheck={false}
       className="w-full rounded-lg border border-surface-border bg-surface-primary px-2 py-1.5 text-sm text-neutral-200 outline-none placeholder:text-neutral-700 focus:border-neutral-600"
     />

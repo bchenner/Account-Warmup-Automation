@@ -129,6 +129,7 @@ export async function verifyProxy(p: Proxy, creds?: ProxyCreds): Promise<Verific
   let country: string | null = null
   let region: string | null = null
   let city: string | null = null
+  let timezone: string | null = null
   let asn: string | null = null
   let org: string | null = null
   let classification: Classification = 'unknown'
@@ -141,6 +142,7 @@ export async function verifyProxy(p: Proxy, creds?: ProxyCreds): Promise<Verific
     country = str(info.country)
     region = str(info.region)
     city = str(info.city)
+    timezone = str(info.timezone)
     const parts = splitOrg(str(info.org))
     asn = parts.asn
     org = parts.org
@@ -201,6 +203,7 @@ export async function verifyProxy(p: Proxy, creds?: ProxyCreds): Promise<Verific
     country,
     region,
     city,
+    timezone,
     asn,
     org,
     classification,

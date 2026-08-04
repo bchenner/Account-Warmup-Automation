@@ -86,6 +86,27 @@ export function parseProxyLine(
     : { host, port }
 }
 
+/**
+ * A profile's clock has to agree with its IP — a US East IP whose browser
+ * reports Europe/Berlin is a coherence failure the operator cannot see. The
+ * proxy's own verified zone is the source of truth, so binding, re-binding or
+ * re-verifying a proxy pushes the zone onto the profile rather than leaving two
+ * fields to be kept in step by hand.
+ *
+ * Returns the zone applied, or null when the proxy has no verified zone yet.
+ */
+async function syncTimezoneFromProxy(
+  profileId: string,
+  proxy: Proxy | undefined
+): Promise<string | null> {
+  const zone = proxy?.lastVerification?.timezone
+  if (!zone) return null
+  const profile = (await listProfiles()).find((p) => p.id === profileId)
+  if (!profile || profile.fingerprint.timezone === zone) return zone
+  await saveProfile({ ...profile, fingerprint: { ...profile.fingerprint, timezone: zone } })
+  return zone
+}
+
 function makeProxy(existing: Proxy[], input: AddProxyInput): Proxy {
   return ProxySchema.parse({
     id: nextProxyId(existing),
@@ -157,12 +178,13 @@ export function registerIpc(): void {
         })
       }
 
+      let boundProxy: Proxy | undefined
       if (input.proxyId) {
         const pool = await loadProxyPool()
-        const proxy = pool.proxies.find((p) => p.id === input.proxyId)
-        if (!proxy) throw new Error(`no such proxy: ${input.proxyId}`)
-        if (proxy.assignedProfileId) {
-          throw new Error(`${proxy.id} is already assigned to ${proxy.assignedProfileId}`)
+        boundProxy = pool.proxies.find((p) => p.id === input.proxyId)
+        if (!boundProxy) throw new Error(`no such proxy: ${input.proxyId}`)
+        if (boundProxy.assignedProfileId) {
+          throw new Error(`${boundProxy.id} is already assigned to ${boundProxy.assignedProfileId}`)
         }
       }
 
@@ -179,7 +201,10 @@ export function registerIpc(): void {
           fingerprint: {
             windowWidth: input.windowWidth,
             windowHeight: input.windowHeight,
-            timezone: input.timezone,
+            // The bound proxy's own zone wins over whatever the form carried,
+            // so a new profile is never born with a clock that disagrees with
+            // the IP it is about to appear from.
+            timezone: boundProxy?.lastVerification?.timezone ?? input.timezone,
             locale: input.locale
           }
         })
@@ -210,6 +235,11 @@ export function registerIpc(): void {
             return p
           })
         )
+        // Moving a profile to a different proxy moves it to a different place,
+        // so the zone follows the new IP rather than staying on the old one.
+        const zone = (await loadProxyPool()).proxies.find((p) => p.id === parsed.proxyId)
+          ?.lastVerification?.timezone
+        if (zone) parsed.fingerprint = { ...parsed.fingerprint, timezone: zone }
       }
       return saveProfile(parsed)
     })
@@ -474,6 +504,13 @@ export function registerIpc(): void {
       await mutateProxies((proxies) =>
         proxies.map((p) => (p.id === id ? { ...p, lastVerification: verification } : p))
       )
+
+      // Re-verification is exactly when a vendor's silent reassignment shows
+      // up, and a reassigned IP can land in a different zone. Carry it across
+      // to whichever profile is bound, so the two never drift apart.
+      if (proxy.assignedProfileId) {
+        await syncTimezoneFromProxy(proxy.assignedProfileId, { ...proxy, lastVerification: verification })
+      }
       return verification
     })
   )
@@ -494,6 +531,7 @@ export function registerIpc(): void {
           return updated
         })
       })
+      if (profileId) await syncTimezoneFromProxy(profileId, updated!)
       return updated!
     })
   )

@@ -43,6 +43,13 @@ export const VerificationSchema = z.object({
   country: z.string().nullable(),
   region: z.string().nullable(),
   city: z.string().nullable(),
+  /**
+   * IANA zone reported for the egress IP itself, e.g. "America/Phoenix". Taken
+   * from the geo lookup rather than derived from the region, because a
+   * region-to-zone table gets Arizona wrong — it does not observe DST.
+   * A profile bound to this proxy inherits it, so its clock matches its IP.
+   */
+  timezone: z.string().nullable().default(null),
   asn: z.string().nullable(),
   org: z.string().nullable(),
   classification: ClassificationSchema,
